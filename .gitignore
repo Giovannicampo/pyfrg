@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environment
+env/
+venv/
+.env
+
+# IDEs
+.vscode/
+.idea/
+
+# OS specific
+.DS_Store
+Thumbs.db
+
+# Project specific
+assets/logo.png  # Opzionale: se vogliamo che il logo generato sia versionato, rimuovere questa riga. Lo includerò nel commit per ora.

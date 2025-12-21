@@ -1,6 +1,7 @@
 import tkinter as tk
 import customtkinter as ctk
-from PIL import Image, ImageTk, ImageOps
+from PIL import Image, ImageTk, ImageOps, ImageFilter
+import colorsys
 
 class ImageCanvas(ctk.CTkFrame):
     def __init__(self, master, **kwargs):
@@ -25,7 +26,8 @@ class ImageCanvas(ctk.CTkFrame):
         
         self.show_grid = False
         self.is_inverted = False
-        self.channel_mode = "RGB" # RGB, R, G, B
+        self.channel_mode = "RGB" # RGB, R, G, B, H, S, V, L, Y, Cb, Cr
+        self.analysis_mode = "Normal" # Normal, Equalize, Edge
 
         # Eventi Mouse
         self.canvas.bind("<ButtonPress-1>", self.start_pan)
@@ -70,7 +72,6 @@ class ImageCanvas(ctk.CTkFrame):
         if not self.original_image:
             return
         self.scale = 1.0
-        # Centriamo approssimativamente
         cw = self.canvas.winfo_width()
         ch = self.canvas.winfo_height()
         iw, ih = self.original_image.size
@@ -85,117 +86,136 @@ class ImageCanvas(ctk.CTkFrame):
     def set_channel_mode(self, mode):
         self.channel_mode = mode
         self.redraw()
+        
+    def set_analysis_mode(self, mode):
+        if self.analysis_mode == mode:
+            self.analysis_mode = "Normal"
+        else:
+            self.analysis_mode = mode
+        self.redraw()
+        return self.analysis_mode
 
     def toggle_invert(self):
         self.is_inverted = not self.is_inverted
         self.redraw()
 
-    def redraw(self):
-        """Ridisegna l'immagine sul canvas applicando scala, pan e filtri canale."""
-        self.canvas.delete("all")
-        
+    def get_current_processed_image(self):
+        """Restituisce l'immagine processata a piena risoluzione."""
         if not self.original_image:
-            return
+            return None
+        return self._apply_filters(self.original_image)
 
-        # 0. Applica Filtro Canale (su copia temp, non toccare originale)
-        img_to_process = self.original_image
-        if self.channel_mode != "RGB":
-            try:
-                # Assicuriamoci che l'immagine sia RGB (gestisce RGBA o Grayscale)
-                if img_to_process.mode != "RGB":
-                    img_to_process = img_to_process.convert("RGB")
-                
+    def _apply_filters(self, img):
+        if img.mode != "RGB" and img.mode != "RGBA":
+            img_to_process = img.convert("RGB")
+        else:
+            img_to_process = img.copy()
+
+        mode = self.channel_mode
+        try:
+            if mode == "RGB": pass
+            elif mode in ["R", "G", "B"]:
+                if img_to_process.mode != "RGB": img_to_process = img_to_process.convert("RGB")
                 r, g, b = img_to_process.split()
                 zero = Image.new("L", r.size, 0)
-                
-                if self.channel_mode == "R":
-                    img_to_process = Image.merge("RGB", (r, zero, zero))
-                elif self.channel_mode == "G":
-                    img_to_process = Image.merge("RGB", (zero, g, zero))
-                elif self.channel_mode == "B":
-                    img_to_process = Image.merge("RGB", (zero, zero, b))
-            except Exception as e:
-                print(f"Errore cambio canale: {e}")
+                if mode == "R": img_to_process = Image.merge("RGB", (r, zero, zero))
+                elif mode == "G": img_to_process = Image.merge("RGB", (zero, g, zero))
+                elif mode == "B": img_to_process = Image.merge("RGB", (zero, zero, b))
+            elif mode in ["HSV", "H", "S", "V"]:
+                hsv = img_to_process.convert("HSV")
+                if mode == "HSV": img_to_process = hsv.convert("RGB")
+                else:
+                    h, s, v = hsv.split()
+                    if mode == "H": img_to_process = h.convert("RGB")
+                    elif mode == "S": img_to_process = s.convert("RGB")
+                    elif mode == "V": img_to_process = v.convert("RGB")
+            elif mode in ["YCbCr", "Y", "Cb", "Cr"]:
+                ycbcr = img_to_process.convert("YCbCr")
+                if mode == "YCbCr": img_to_process = ycbcr.convert("RGB")
+                else:
+                    y, cb, cr = ycbcr.split()
+                    if mode == "Y": img_to_process = y.convert("RGB")
+                    elif mode == "Cb": img_to_process = cb.convert("RGB")
+                    elif mode == "Cr": img_to_process = cr.convert("RGB")
+            elif mode == "L":
+                img_to_process = img_to_process.convert("L").convert("RGB")
+        except Exception as e:
+            print(f"Errore colore {mode}: {e}")
 
-        # 0.5 Inversione (Negativo)
         if self.is_inverted:
             try:
                 if img_to_process.mode == "RGBA":
-                    # Invertiamo solo RGB, lasciamo Alpha intatto
                     r, g, b, a = img_to_process.split()
-                    rgb = Image.merge("RGB", (r, g, b))
-                    inv = ImageOps.invert(rgb)
+                    inv = ImageOps.invert(Image.merge("RGB", (r, g, b)))
                     r, g, b = inv.split()
                     img_to_process = Image.merge("RGBA", (r, g, b, a))
                 else:
-                    if img_to_process.mode != "RGB":
-                         img_to_process = img_to_process.convert("RGB")
+                    if img_to_process.mode != "RGB": img_to_process = img_to_process.convert("RGB")
                     img_to_process = ImageOps.invert(img_to_process)
             except Exception as e:
-                print(f"Errore inversione: {e}")
+                print(f"Errore invert: {e}")
 
-        # 1. Calcola nuove dimensioni
+        if self.analysis_mode != "Normal":
+            try:
+                if img_to_process.mode == "RGBA": img_to_process = img_to_process.convert("RGB")
+                if self.analysis_mode == "Equalize": img_to_process = ImageOps.equalize(img_to_process)
+                elif self.analysis_mode == "Edge": img_to_process = img_to_process.filter(ImageFilter.FIND_EDGES)
+            except Exception as e:
+                print(f"Errore analisi: {e}")
+        return img_to_process
+
+    def redraw(self):
+        self.canvas.delete("all")
+        if not self.original_image: return
+        img_to_process = self._apply_filters(self.original_image)
         width, height = img_to_process.size
         new_size = (int(width * self.scale), int(height * self.scale))
-        
-        # Evitiamo crash se troppo piccolo
-        if new_size[0] < 1 or new_size[1] < 1:
-            return
-
-        # 2. Resampling
-        # Usa Nearest se zoom > 2.0 per vedere i pixel, altrimenti Bilinear
+        if new_size[0] < 1 or new_size[1] < 1: return
         resample_method = Image.Resampling.NEAREST if self.scale > 2.0 else Image.Resampling.BILINEAR
         self.displayed_image = img_to_process.resize(new_size, resample_method)
-        
-        # 3. Conversione per Tkinter
         self.tk_image = ImageTk.PhotoImage(self.displayed_image)
-
-        # 4. Disegno Immagine
         self.canvas.create_image(self.pan_x, self.pan_y, anchor="nw", image=self.tk_image)
-        
-        # 5. Disegno Griglia (Overlay)
-        if self.show_grid:
-            self._draw_grid(new_size[0], new_size[1])
+        if self.show_grid: self._draw_grid(new_size[0], new_size[1])
 
     def _draw_grid(self, w, h):
-        """Disegna una griglia sopra l'immagine."""
-        step = 50 * self.scale # Griglia ogni 50 pixel dell'immagine originale
-        if step < 10: step = 10 # Limite minimo visivo
-        
-        # Linee Verticali
+        step = 50 * self.scale
+        if step < 10: step = 10
         for i in range(0, int(w), int(step)):
             x = self.pan_x + i
             self.canvas.create_line(x, self.pan_y, x, self.pan_y + h, fill="#00ff00", stipple="gray50")
-            
-        # Linee Orizzontali
         for i in range(0, int(h), int(step)):
             y = self.pan_y + i
             self.canvas.create_line(self.pan_x, y, self.pan_x + w, y, fill="#00ff00", stipple="gray50")
-        
-        # Bordo immagine
         self.canvas.create_rectangle(self.pan_x, self.pan_y, self.pan_x + w, self.pan_y + h, outline="#ff0000")
 
     def get_pixel_data(self, canvas_x, canvas_y):
-        """Restituisce informazioni sul pixel alle coordinate canvas date."""
-        if not self.original_image:
-            return "Nessuna immagine"
-            
-        # Converti coord canvas -> coord immagine
+        if not self.original_image: return "Nessuna immagine"
         img_x = int((canvas_x - self.pan_x) / self.scale)
         img_y = int((canvas_y - self.pan_y) / self.scale)
-        
         w, h = self.original_image.size
-        
         if 0 <= img_x < w and 0 <= img_y < h:
             try:
-                # Ottieni colore pixel originale (lento se fatto spesso, ma ok per hover)
-                # Nota: getpixel è veloce su singoli pixel
                 pixel = self.original_image.getpixel((img_x, img_y))
-                return f"X: {img_x} Y: {img_y} | RGB: {pixel}"
-            except Exception:
-                return "Errore lettura"
-        else:
-            return f"Fuori area (X: {img_x}, Y: {img_y})"
+                if isinstance(pixel, int): r = g = b = pixel
+                elif len(pixel) == 4: r, g, b = pixel[:3]
+                else: r, g, b = pixel
+                mode = self.channel_mode
+                if mode == "RGB": return f"XY: {img_x},{img_y} | RGB: ({r}, {g}, {b})"
+                elif mode == "HSV" or mode in ["H", "S", "V"]:
+                    hh, ss, vv = colorsys.rgb_to_hsv(r/255.0, g/255.0, b/255.0)
+                    return f"XY: {img_x},{img_y} | HSV: ({int(hh*360)}°, {int(ss*100)}%, {int(vv*100)}%)"
+                elif mode == "YCbCr" or mode in ["Y", "Cb", "Cr"]:
+                    y = int(0.299*r + 0.587*g + 0.114*b)
+                    cb = int(128 - 0.168736*r - 0.331264*g + 0.5*b)
+                    cr = int(128 + 0.5*r - 0.418688*g - 0.081312*b)
+                    return f"XY: {img_x},{img_y} | YCbCr: ({y}, {cb}, {cr})"
+                elif mode == "L": return f"XY: {img_x},{img_y} | L: {int(0.299*r + 0.587*g + 0.114*b)}"
+                elif mode == "R": return f"XY: {img_x},{img_y} | R: {r}"
+                elif mode == "G": return f"XY: {img_x},{img_y} | G: {g}"
+                elif mode == "B": return f"XY: {img_x},{img_y} | B: {b}"
+                return f"XY: {img_x},{img_y} | RGB: {r},{g},{b}"
+            except Exception: return "Errore lettura"
+        return "Fuori area"
 
     def start_pan(self, event):
         self.canvas.scan_mark(event.x, event.y)
@@ -205,24 +225,15 @@ class ImageCanvas(ctk.CTkFrame):
     def pan_image(self, event):
         dx = event.x - self._drag_start_x
         dy = event.y - self._drag_start_y
-        
         self.pan_x += dx
         self.pan_y += dy
-        
         self._drag_start_x = event.x
         self._drag_start_y = event.y
-        
         self.redraw()
 
     def zoom_image(self, event):
-        if not self.original_image:
-            return
-
-        # Fattore di zoom
+        if not self.original_image: return
         zoom_factor = 1.1
-        if event.num == 5 or event.delta < 0:
-            self.scale /= zoom_factor
-        else:
-            self.scale *= zoom_factor
-
+        if event.num == 5 or event.delta < 0: self.scale /= zoom_factor
+        else: self.scale *= zoom_factor
         self.redraw()

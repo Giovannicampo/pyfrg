@@ -46,7 +46,7 @@ class ForgeryApp(ctk.CTk):
     def __init__(self):
         super().__init__()
 
-        self.title("pyfrg - Image Forgery Tool")
+        self.title("pyfrg")
         self.geometry("1100x700")
 
         self.image_processor = ImageProcessor()
@@ -60,7 +60,7 @@ class ForgeryApp(ctk.CTk):
         self.sidebar.grid(row=0, column=0, sticky="nsew")
         
         # Logo
-        self.logo_label = ctk.CTkLabel(self.sidebar, text="pyfrg", font=("Arial", 24, "bold"), text_color="#8B0000")
+        self.logo_label = ctk.CTkLabel(self.sidebar, text="pyfrg", font=("Arial", 24, "bold"), text_color="#7A0202")
         try:
             if os.path.exists("assets/logo.png"):
                 logo_img = ctk.CTkImage(Image.open("assets/logo.png"), size=(50, 50))
@@ -146,7 +146,7 @@ class ForgeryApp(ctk.CTk):
         for widget in self.metadata_view.winfo_children():
             widget.destroy()
         
-        ctk.CTkLabel(self.metadata_view, text="ANALISI METADATI EXIF", font=("Arial", 18, "bold"), text_color="#8B0000").pack(pady=20)
+        ctk.CTkLabel(self.metadata_view, text="Analisi Metadati EXIF", font=("Arial", 18, "bold"), text_color="#7A0202").pack(pady=20)
         data = self.image_processor.get_formatted_exif()
         for label, value in data:
             row = ctk.CTkFrame(self.metadata_view, fg_color="transparent")

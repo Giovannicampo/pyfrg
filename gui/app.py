@@ -156,11 +156,25 @@ class ForgeryApp(ctk.CTk):
             
             self.btn_rect = ctk.CTkButton(self.copymove_frame, text="Rect", width=60, fg_color="#555", command=lambda: self.set_selection_shape("rect"))
             self.btn_rect.pack(side="left", padx=2)
-            CTkToolTip(self.btn_rect, "Rectangular selection")
             
             self.btn_oval = ctk.CTkButton(self.copymove_frame, text="Oval", width=60, fg_color="#333", command=lambda: self.set_selection_shape("oval"))
             self.btn_oval.pack(side="left", padx=2)
-            CTkToolTip(self.btn_oval, "Oval selection (adds transparency)")
+            
+            self.btn_free = ctk.CTkButton(self.copymove_frame, text="Free", width=60, fg_color="#333", command=lambda: self.set_selection_shape("free"))
+            self.btn_free.pack(side="left", padx=2)
+
+            ctk.CTkFrame(self.copymove_frame, width=1, height=20, fg_color="#444").pack(side="left", padx=10)
+
+            # --- TRANSFORMATION SLIDERS ---
+            ctk.CTkLabel(self.copymove_frame, text="Scale:", font=("Arial", 11)).pack(side="left", padx=2)
+            self.slider_scale = ctk.CTkSlider(self.copymove_frame, from_=10, to=200, width=100, command=self.update_floating_scale)
+            self.slider_scale.set(100)
+            self.slider_scale.pack(side="left", padx=5)
+
+            ctk.CTkLabel(self.copymove_frame, text="Rotate:", font=("Arial", 11)).pack(side="left", padx=2)
+            self.slider_rotate = ctk.CTkSlider(self.copymove_frame, from_=-180, to=180, width=100, command=self.update_floating_rotate)
+            self.slider_rotate.set(0)
+            self.slider_rotate.pack(side="left", padx=5)
 
             ctk.CTkFrame(self.copymove_frame, width=1, height=20, fg_color="#444").pack(side="left", padx=10)
 
@@ -168,22 +182,23 @@ class ForgeryApp(ctk.CTk):
             
             self.btn_mask = ctk.CTkButton(self.copymove_frame, text="Auto Mask", command=self.run_auto_mask_thread, width=80, fg_color="#444")
             self.btn_mask.pack(side="left", padx=2)
-            CTkToolTip(self.btn_mask, "AI Background Removal")
 
             btn_feather = ctk.CTkButton(self.copymove_frame, text="Feather", command=self.image_canvas.trigger_feathering, width=70, fg_color="#444")
             btn_feather.pack(side="left", padx=2)
-            CTkToolTip(btn_feather, "Smooth edges")
 
             ctk.CTkFrame(self.copymove_frame, width=1, height=20, fg_color="#444").pack(side="left", padx=10)
 
             btn_apply = ctk.CTkButton(self.copymove_frame, text="Paste", command=self.apply_tool, width=70, fg_color="green")
             btn_apply.pack(side="left", padx=5)
-            CTkToolTip(btn_apply, "Apply modification")
 
             btn_clear = ctk.CTkButton(self.copymove_frame, text="Cancel", command=self.clear_tool_selection, width=70, fg_color="#8B0000")
             btn_clear.pack(side="left", padx=5)
-            
-            ctk.CTkLabel(self.copymove_frame, text="Ctrl+Z: Undo", font=("Arial", 10), text_color="gray50").pack(side="right", padx=15)
+
+    def update_floating_scale(self, val):
+        self.image_canvas.apply_transformations(scale_percent=val)
+
+    def update_floating_rotate(self, val):
+        self.image_canvas.apply_transformations(angle=val)
 
     def run_auto_mask_thread(self):
         if not self.image_canvas.floating_pil_image: return
@@ -210,9 +225,13 @@ class ForgeryApp(ctk.CTk):
         self.image_canvas.set_selection_shape(shape)
         self.btn_rect.configure(fg_color="#555" if shape == "rect" else "#333")
         self.btn_oval.configure(fg_color="#555" if shape == "oval" else "#333")
+        self.btn_free.configure(fg_color="#555" if shape == "free" else "#333")
 
     def start_selection_mode(self):
         self.image_canvas.set_tool_mode("select")
+        # Reset transformation sliders to defaults
+        if hasattr(self, 'slider_scale'): self.slider_scale.set(100)
+        if hasattr(self, 'slider_rotate'): self.slider_rotate.set(0)
 
     def apply_tool(self):
         self.image_canvas.apply_paste()

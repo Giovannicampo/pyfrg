@@ -6,6 +6,7 @@ from core.image_processor import ImageProcessor
 from gui.canvas_widget import ImageCanvas
 from gui.tooltip import CTkToolTip
 import os
+import threading
 
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
@@ -13,18 +14,18 @@ ctk.set_default_color_theme("blue")
 class ChannelSelector(ctk.CTkToplevel):
     def __init__(self, parent, callback):
         super().__init__(parent)
-        self.title("Seleziona Canale")
-        self.geometry("300x650")
+        self.title("Select Channel")
+        self.geometry("300x600")
         self.callback = callback
         self.attributes("-topmost", True)
         
-        ctk.CTkLabel(self, text="Spazi Colore", font=("Arial", 16, "bold")).pack(pady=10)
+        ctk.CTkLabel(self, text="Color Spaces", font=("Arial", 16, "bold")).pack(pady=10)
         
         modes = [
-            ("RGB (Originale)", "RGB"),
-            ("Rosso (R)", "R"), ("Verde (G)", "G"), ("Blu (B)", "B"),
+            ("RGB (Original)", "RGB"),
+            ("Red (R)", "R"), ("Green (G)", "G"), ("Blue (B)", "B"),
             ("---", None),
-            ("HSV (Analisi)", "HSV"), ("Hue (Tonalità)", "H"), ("Saturation", "S"), ("Value (Luminosità)", "V"),
+            ("HSV (Analysis)", "HSV"), ("Hue", "H"), ("Saturation", "S"), ("Value", "V"),
             ("---", None),
             ("YCbCr (JPEG)", "YCbCr"), ("Luminance (Y)", "Y"), ("Chroma Blue (Cb)", "Cb"), ("Chroma Red (Cr)", "Cr"),
             ("---", None),
@@ -51,7 +52,7 @@ class ForgeryApp(ctk.CTk):
 
         self.image_processor = ImageProcessor()
 
-        # Layout
+        # Layout Core
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
 
@@ -60,98 +61,174 @@ class ForgeryApp(ctk.CTk):
         self.sidebar.grid(row=0, column=0, sticky="nsew")
         
         # Logo
-        self.logo_label = ctk.CTkLabel(self.sidebar, text="pyfrg", font=("Arial", 24, "bold"), text_color="#7A0202")
+        self.logo_label = ctk.CTkLabel(self.sidebar, text="  pyfrg", font=("Arial", 24, "bold"), text_color="#7A0202")
         try:
             if os.path.exists("assets/logo.png"):
-                logo_img = ctk.CTkImage(Image.open("assets/logo.png"), size=(50, 50))
-                self.logo_label.configure(image=logo_img, compound="left", text=" pyfrg")
-        except: pass
-        self.logo_label.pack(padx=20, pady=(20, 15))
+                logo_img = ctk.CTkImage(light_image=Image.open("assets/logo.png"), 
+                                      dark_image=Image.open("assets/logo.png"), 
+                                      size=(40, 40))
+                self.logo_label.configure(image=logo_img, compound="left")
+        except Exception as e:
+            print(f"Could not load logo: {e}")
+            
+        self.logo_label.pack(padx=20, pady=20)
 
-        # Pulsanti Sidebar
-        btn_style = {"height": 35, "fg_color": "transparent", "hover_color": "#8B0000", "anchor": "w", "corner_radius": 0}
-        
-        self.btn_load = ctk.CTkButton(self.sidebar, text="  📂 Carica Immagine", command=self.load_image, **btn_style)
-        self.btn_load.pack(fill="x", pady=2)
-        self.add_sep()
-        
-        self.btn_view = ctk.CTkButton(self.sidebar, text="  👁  Visualizza", command=lambda: self.show_page("view"), **btn_style)
-        self.btn_view.pack(fill="x", pady=2)
-        self.add_sep()
-        
-        self.btn_meta = ctk.CTkButton(self.sidebar, text="  ℹ  Metadati", command=lambda: self.show_page("meta"), **btn_style)
-        self.btn_meta.pack(fill="x", pady=2)
-        self.add_sep()
+        # UI Components
+        self.setup_sidebar_buttons()
 
-        self.btn_tools = ctk.CTkButton(self.sidebar, text="  🛠  Strumenti", command=lambda: self.show_page("tools"), **btn_style)
-        self.btn_tools.pack(fill="x", pady=2)
-
-        # --- AREA CONTENUTI ---
+        # --- MAIN AREA ---
         self.main_container = ctk.CTkFrame(self, fg_color="transparent")
         self.main_container.grid(row=0, column=1, sticky="nsew", padx=10, pady=10)
         self.main_container.grid_columnconfigure(0, weight=1)
         self.main_container.grid_rowconfigure(1, weight=1)
 
-        # 1. Canvas
         self.image_canvas = ImageCanvas(self.main_container)
         self.image_canvas.grid(row=1, column=0, sticky="nsew")
 
-        # 2. Toolbar
         self.toolbar = ctk.CTkFrame(self.main_container, height=50)
         self.toolbar.grid(row=0, column=0, sticky="ew", pady=(0, 5))
         self.setup_toolbar()
 
-        # 3. Vista Metadati
         self.metadata_view = ctk.CTkScrollableFrame(self.main_container, fg_color="#1a1a1a")
 
-        # 4. Status Bar
         self.status_bar = ctk.CTkFrame(self.main_container, height=25)
         self.status_bar.grid(row=2, column=0, sticky="ew", pady=(5, 0))
         
-        self.lbl_file = ctk.CTkLabel(self.status_bar, text="Nessun file caricato", font=("Arial", 11))
+        self.lbl_file = ctk.CTkLabel(self.status_bar, text="No file loaded", font=("Arial", 11))
         self.lbl_file.pack(side="left", padx=10)
 
         self.pixel_info = ctk.CTkLabel(self.status_bar, text="X: - Y: - | RGB: -", font=("Consolas", 11))
         self.pixel_info.pack(side="right", padx=20)
 
-        # Binding
+        # Bindings
         self.image_canvas.canvas.bind("<Motion>", self.on_mouse_move)
+        self.bind("<Control-z>", lambda e: self.image_canvas.perform_undo())
+        self.bind("<Control-y>", lambda e: self.image_canvas.perform_redo())
         self.bind("<Control-plus>", lambda e: self.zoom(1.2))
         self.bind("<Control-minus>", lambda e: self.zoom(0.8))
         self.bind("<Control-equal>", lambda e: self.zoom(1.2))
-
+        
         self.show_page("view")
 
-    def add_sep(self):
-        ctk.CTkFrame(self.sidebar, height=1, fg_color="#444").pack(fill="x")
+    def setup_sidebar_buttons(self):
+        btn_style = {"height": 35, "fg_color": "transparent", "hover_color": "#8B0000", "anchor": "w", "corner_radius": 0}
+        
+        self.btn_load = ctk.CTkButton(self.sidebar, text="  Load Image", command=self.load_image, **btn_style)
+        self.btn_load.pack(fill="x", pady=2)
+        
+        self.btn_view = ctk.CTkButton(self.sidebar, text="  View", command=lambda: self.show_page("view"), **btn_style)
+        self.btn_view.pack(fill="x", pady=2)
+        
+        self.btn_meta = ctk.CTkButton(self.sidebar, text="  Metadata", command=lambda: self.show_page("meta"), **btn_style)
+        self.btn_meta.pack(fill="x", pady=2)
+
+        self.btn_copymove = ctk.CTkButton(self.sidebar, text="  Copy-Move", command=lambda: self.show_page("copymove"), **btn_style)
+        self.btn_copymove.pack(fill="x", pady=2)
 
     def show_page(self, page):
         self.btn_view.configure(fg_color="#8B0000" if page=="view" else "transparent")
         self.btn_meta.configure(fg_color="#8B0000" if page=="meta" else "transparent")
-        self.btn_tools.configure(fg_color="#8B0000" if page=="tools" else "transparent")
+        self.btn_copymove.configure(fg_color="#8B0000" if page=="copymove" else "transparent")
         
+        self.metadata_view.grid_forget()
+        self.toolbar.grid_forget()
+        self.image_canvas.grid_forget()
+        if hasattr(self, 'copymove_frame'): self.copymove_frame.grid_forget()
+
         if page == "view":
-            self.metadata_view.grid_forget()
             self.toolbar.grid(row=0, column=0, sticky="ew", pady=(0, 5))
             self.image_canvas.grid(row=1, column=0, sticky="nsew")
+            self.image_canvas.set_tool_mode("view")
         elif page == "meta":
-            self.toolbar.grid_forget()
-            self.image_canvas.grid_forget()
             self.metadata_view.grid(row=0, column=0, rowspan=2, sticky="nsew")
             self.update_metadata_ui()
-        else:
-            print(f"Pagina {page} non implementata")
+        elif page == "copymove":
+            self.image_canvas.grid(row=1, column=0, sticky="nsew") 
+            self.setup_copymove_page()
+            self.copymove_frame.grid(row=0, column=0, sticky="ew", pady=(0, 5))
+            self.start_selection_mode()
+
+    def setup_copymove_page(self):
+        if not hasattr(self, 'copymove_frame'):
+            self.copymove_frame = ctk.CTkFrame(self.main_container, height=50, fg_color="#222")
+            
+            ctk.CTkLabel(self.copymove_frame, text="Copy-Move Tools", font=("Arial", 12, "bold"), text_color="gray").pack(side="left", padx=(15, 5))
+            
+            self.btn_rect = ctk.CTkButton(self.copymove_frame, text="Rect", width=60, fg_color="#555", command=lambda: self.set_selection_shape("rect"))
+            self.btn_rect.pack(side="left", padx=2)
+            CTkToolTip(self.btn_rect, "Rectangular selection")
+            
+            self.btn_oval = ctk.CTkButton(self.copymove_frame, text="Oval", width=60, fg_color="#333", command=lambda: self.set_selection_shape("oval"))
+            self.btn_oval.pack(side="left", padx=2)
+            CTkToolTip(self.btn_oval, "Oval selection (adds transparency)")
+
+            ctk.CTkFrame(self.copymove_frame, width=1, height=20, fg_color="#444").pack(side="left", padx=10)
+
+            self.loading_bar = ctk.CTkProgressBar(self.copymove_frame, width=100, mode="indeterminate", height=8)
+            
+            self.btn_mask = ctk.CTkButton(self.copymove_frame, text="Auto Mask", command=self.run_auto_mask_thread, width=80, fg_color="#444")
+            self.btn_mask.pack(side="left", padx=2)
+            CTkToolTip(self.btn_mask, "AI Background Removal")
+
+            btn_feather = ctk.CTkButton(self.copymove_frame, text="Feather", command=self.image_canvas.trigger_feathering, width=70, fg_color="#444")
+            btn_feather.pack(side="left", padx=2)
+            CTkToolTip(btn_feather, "Smooth edges")
+
+            ctk.CTkFrame(self.copymove_frame, width=1, height=20, fg_color="#444").pack(side="left", padx=10)
+
+            btn_apply = ctk.CTkButton(self.copymove_frame, text="Paste", command=self.apply_tool, width=70, fg_color="green")
+            btn_apply.pack(side="left", padx=5)
+            CTkToolTip(btn_apply, "Apply modification")
+
+            btn_clear = ctk.CTkButton(self.copymove_frame, text="Cancel", command=self.clear_tool_selection, width=70, fg_color="#8B0000")
+            btn_clear.pack(side="left", padx=5)
+            
+            ctk.CTkLabel(self.copymove_frame, text="Ctrl+Z: Undo", font=("Arial", 10), text_color="gray50").pack(side="right", padx=15)
+
+    def run_auto_mask_thread(self):
+        if not self.image_canvas.floating_pil_image: return
+        self.loading_bar.pack(side="left", padx=10)
+        self.loading_bar.start()
+        self.btn_mask.configure(state="disabled")
+        threading.Thread(target=self._bg_remove_task, daemon=True).start()
+
+    def _bg_remove_task(self):
+        try:
+            img_in = self.image_canvas.floating_pil_image.copy()
+            img_out = ImageProcessor.smart_background_remove(img_in)
+            self.after(0, lambda: self._on_bg_remove_done(img_out))
+        except:
+            self.after(0, lambda: self._on_bg_remove_done(None))
+
+    def _on_bg_remove_done(self, result):
+        self.loading_bar.stop()
+        self.loading_bar.pack_forget()
+        self.btn_mask.configure(state="normal")
+        if result: self.image_canvas.update_floating_image(result)
+
+    def set_selection_shape(self, shape):
+        self.image_canvas.set_selection_shape(shape)
+        self.btn_rect.configure(fg_color="#555" if shape == "rect" else "#333")
+        self.btn_oval.configure(fg_color="#555" if shape == "oval" else "#333")
+
+    def start_selection_mode(self):
+        self.image_canvas.set_tool_mode("select")
+
+    def apply_tool(self):
+        self.image_canvas.apply_paste()
+        
+    def clear_tool_selection(self):
+        self.image_canvas.clear_selection()
+        self.image_canvas.set_tool_mode("select")
 
     def update_metadata_ui(self):
         for widget in self.metadata_view.winfo_children():
             widget.destroy()
-        
-        ctk.CTkLabel(self.metadata_view, text="Analisi Metadati EXIF", font=("Arial", 18, "bold"), text_color="#7A0202").pack(pady=20)
         data = self.image_processor.get_formatted_exif()
         for label, value in data:
             row = ctk.CTkFrame(self.metadata_view, fg_color="transparent")
             row.pack(fill="x", padx=40, pady=5)
-            ctk.CTkLabel(row, text=f"{label}:", width=200, anchor="w", font=("Arial", 12, "bold"), text_color="gray70").pack(side="left")
+            ctk.CTkLabel(row, text=f"{label}:", width=200, anchor="w", font=("Arial", 12, "bold")).pack(side="left")
             ctk.CTkLabel(row, text=value, anchor="w", font=("Arial", 12)).pack(side="left", padx=10)
 
     def setup_toolbar(self):
@@ -159,85 +236,48 @@ class ForgeryApp(ctk.CTk):
         
         # ZOOM
         ctk.CTkLabel(self.toolbar, text="Zoom:").pack(side="left", padx=5)
-        b_out = ctk.CTkButton(self.toolbar, text="-", command=lambda: self.zoom(0.8), **t_btn)
-        b_out.pack(side="left", padx=2)
-        CTkToolTip(b_out, "Zoom Out")
-
-        b_11 = ctk.CTkButton(self.toolbar, text="1:1", command=lambda: self.image_canvas.set_zoom_1_to_1(), **t_btn)
-        b_11.pack(side="left", padx=2)
-        CTkToolTip(b_11, "Zoom 1:1")
-
-        b_in = ctk.CTkButton(self.toolbar, text="+", command=lambda: self.zoom(1.2), **t_btn)
-        b_in.pack(side="left", padx=2)
-        CTkToolTip(b_in, "Zoom In")
+        ctk.CTkButton(self.toolbar, text="-", command=lambda: self.zoom(0.8), **t_btn).pack(side="left", padx=2)
+        ctk.CTkButton(self.toolbar, text="1:1", command=lambda: self.image_canvas.set_zoom_1_to_1(), **t_btn).pack(side="left", padx=2)
+        ctk.CTkButton(self.toolbar, text="+", command=lambda: self.zoom(1.2), **t_btn).pack(side="left", padx=2)
         
-        t_btn_fit = t_btn.copy()
-        t_btn_fit["width"] = 40
-        b_fit = ctk.CTkButton(self.toolbar, text="FIT", command=lambda: self.image_canvas.fit_to_screen(), **t_btn_fit)
-        b_fit.pack(side="left", padx=5)
-        CTkToolTip(b_fit, "Adatta allo schermo")
+        btn_fit = ctk.CTkButton(self.toolbar, text="FIT", command=self.image_canvas.fit_to_screen, **t_btn)
+        btn_fit.pack(side="left", padx=(5, 2))
+        CTkToolTip(btn_fit, "Fit to screen")
         
-        # CANALI (Popup button invece di Dropdown instabile)
-        ctk.CTkLabel(self.toolbar, text="| Canali:").pack(side="left", padx=5)
-        self.btn_channels = ctk.CTkButton(self.toolbar, text="RGB ▾", command=self.open_channel_selector, width=60, height=30, fg_color="#333", hover_color="#8B0000")
+        # CHANNELS
+        ctk.CTkLabel(self.toolbar, text="| Channels:").pack(side="left", padx=5)
+        self.btn_channels = ctk.CTkButton(self.toolbar, text="RGB", command=self.open_channel_selector, width=60, height=30, fg_color="#333")
         self.btn_channels.pack(side="left", padx=2)
-        CTkToolTip(self.btn_channels, "Seleziona Canale / Spazio Colore")
 
-        # STRUMENTI ANALISI
-        ctk.CTkLabel(self.toolbar, text="| Strumenti:").pack(side="left", padx=5)
+        # ANALYSIS TOOLS
+        ctk.CTkLabel(self.toolbar, text="| Tools:").pack(side="left", padx=5)
         
-        t_btn_wide = t_btn.copy()
-        t_btn_wide["width"] = 45
-
-        self.btn_grid = ctk.CTkButton(self.toolbar, text="▦", command=self.toggle_grid, **t_btn_wide)
+        self.btn_grid = ctk.CTkButton(self.toolbar, text="Grid", command=self.toggle_grid, **t_btn)
         self.btn_grid.pack(side="left", padx=2)
-        CTkToolTip(self.btn_grid, "Griglia")
 
-        self.btn_invert = ctk.CTkButton(self.toolbar, text="🌓", command=self.toggle_invert, **t_btn_wide)
+        self.btn_invert = ctk.CTkButton(self.toolbar, text="Neg", command=self.toggle_invert, **t_btn)
         self.btn_invert.pack(side="left", padx=2)
-        CTkToolTip(self.btn_invert, "Inverti (Negativo)")
+        CTkToolTip(self.btn_invert, "Invert Colors (Negative)")
 
-        self.btn_he = ctk.CTkButton(self.toolbar, text="◩", command=lambda: self.toggle_filter("Equalize"), **t_btn_wide)
+        self.btn_he = ctk.CTkButton(self.toolbar, text="HE", command=lambda: self.toggle_filter("Equalize"), **t_btn)
         self.btn_he.pack(side="left", padx=2)
-        CTkToolTip(self.btn_he, "Equalizzazione Contrasto")
+        CTkToolTip(self.btn_he, "Histogram Equalization")
 
-        self.btn_edge = ctk.CTkButton(self.toolbar, text="EDGE", command=lambda: self.toggle_filter("Edge"), **t_btn_wide)
+        self.btn_edge = ctk.CTkButton(self.toolbar, text="Edge", command=lambda: self.toggle_filter("Edge"), **t_btn)
         self.btn_edge.pack(side="left", padx=2)
-        CTkToolTip(self.btn_edge, "Rilevamento Bordi")
+        CTkToolTip(self.btn_edge, "Edge Detection")
+
+        self.btn_ela = ctk.CTkButton(self.toolbar, text="ELA", command=lambda: self.toggle_filter("ELA"), **t_btn)
+        self.btn_ela.pack(side="left", padx=2)
+        CTkToolTip(self.btn_ela, "Error Level Analysis")
         
         ctk.CTkLabel(self.toolbar, text="|").pack(side="left", padx=5)
 
-        b_save = ctk.CTkButton(self.toolbar, text="SAVE", command=self.save_view, **t_btn_wide)
-        b_save.pack(side="left", padx=2)
-        CTkToolTip(b_save, "Salva Vista")
+        self.btn_hist = ctk.CTkButton(self.toolbar, text="HIST", command=self.show_histogram, **t_btn)
+        self.btn_hist.pack(side="left", padx=2)
+        CTkToolTip(self.btn_hist, "RGB Histogram")
 
-        b_hist = ctk.CTkButton(self.toolbar, text="HIST", command=self.show_histogram, **t_btn_wide)
-        b_hist.pack(side="left", padx=2)
-        CTkToolTip(b_hist, "Istogramma RGB")
-
-    def open_channel_selector(self):
-        ChannelSelector(self, self.set_channel_from_popup)
-
-    def set_channel_from_popup(self, mode):
-        self.image_canvas.set_channel_mode(mode)
-        # Aggiorna il testo del bottone per mostrare cosa è selezionato
-        self.btn_channels.configure(text=f"{mode} ▾")
-
-    def toggle_grid(self):
-        if hasattr(self, 'image_canvas'):
-            self.image_canvas.toggle_grid()
-            self.btn_grid.configure(fg_color="#8B0000" if self.image_canvas.show_grid else "#333")
-
-    def toggle_invert(self):
-        if hasattr(self, 'image_canvas'):
-            self.image_canvas.toggle_invert()
-            self.btn_invert.configure(fg_color="#8B0000" if self.image_canvas.is_inverted else "#333")
-
-    def toggle_filter(self, mode):
-        if hasattr(self, 'image_canvas'):
-            curr = self.image_canvas.set_analysis_mode(mode)
-            self.btn_he.configure(fg_color="#8B0000" if curr == "Equalize" else "#333")
-            self.btn_edge.configure(fg_color="#8B0000" if curr == "Edge" else "#333")
+        ctk.CTkButton(self.toolbar, text="SAVE", command=self.save_view, width=50, height=30, fg_color="#333").pack(side="left", padx=10)
 
     def show_histogram(self):
         try:
@@ -245,12 +285,35 @@ class ForgeryApp(ctk.CTk):
             if self.image_canvas.original_image:
                 HistogramWindow(self, self.image_canvas.original_image, self.image_canvas.get_current_processed_image())
         except Exception as e:
-            print(f"Errore: {e}")
+            print(f"Error opening histogram: {e}")
+
+    def toggle_grid(self):
+        self.image_canvas.toggle_grid()
+        self.btn_grid.configure(fg_color="#8B0000" if self.image_canvas.show_grid else "#333")
+
+    def toggle_invert(self):
+        self.image_canvas.toggle_invert()
+        self.btn_invert.configure(fg_color="#8B0000" if self.image_canvas.is_inverted else "#333")
+
+    def toggle_filter(self, mode):
+        curr = self.image_canvas.set_analysis_mode(mode)
+        # Update button colors for feedback
+        self.btn_he.configure(fg_color="#8B0000" if curr == "Equalize" else "#333")
+        self.btn_edge.configure(fg_color="#8B0000" if curr == "Edge" else "#333")
+        self.btn_ela.configure(fg_color="#8B0000" if curr == "ELA" else "#333")
+
+    def open_channel_selector(self):
+        ChannelSelector(self, self.set_channel_from_popup)
+
+    def set_channel_from_popup(self, mode):
+        self.image_canvas.set_channel_mode(mode)
+        self.btn_channels.configure(text=mode)
 
     def save_view(self):
         img = self.image_canvas.get_current_processed_image()
         if img:
-            path = filedialog.asksaveasfilename(defaultextension=".png")
+            path = filedialog.asksaveasfilename(defaultextension=".png", 
+                                               filetypes=[("PNG", "*.png"), ("JPG", "*.jpg")])
             if path: img.save(path)
 
     def on_mouse_move(self, event):
@@ -263,8 +326,8 @@ class ForgeryApp(ctk.CTk):
 
     def load_image(self):
         path = filedialog.askopenfilename(filetypes=[
-            ("Immagini supportate", "*.jpg *.jpeg *.png *.bmp *.webp"),
-            ("Tutti i file", "*.*")
+            ("Supported Images", "*.jpg *.jpeg *.png *.bmp *.webp"),
+            ("All Files", "*.*")
         ])
         if path:
             img = self.image_processor.load_image(path)

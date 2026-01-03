@@ -2,6 +2,8 @@ import tkinter as tk
 import customtkinter as ctk
 from PIL import Image, ImageTk, ImageOps, ImageFilter
 import colorsys
+from core.image_processor import ImageProcessor
+from core.history_manager import HistoryManager
 
 class ImageCanvas(ctk.CTkFrame):
     def __init__(self, master, **kwargs):
@@ -16,22 +18,40 @@ class ImageCanvas(ctk.CTkFrame):
         self.canvas.grid(row=0, column=0, sticky="nsew")
 
         # Variabili stato
-        self.original_image = None  # PIL Image originale
+        self.original_image = None  # PIL Image originale (Base modificabile)
         self.displayed_image = None # PIL Image scalata
         self.tk_image = None        # Immagine compatibile Tkinter
+        
+        self.history = HistoryManager(max_steps=20)
         
         self.scale = 1.0
         self.pan_x = 0
         self.pan_y = 0
         
+        # Tools state
+        self.tool_mode = "view" # view, select, move_floating
+        self.selection_shape = "rect" # rect, oval
+        
+        # Selezione / Copy-Move
+        self.selection_start = None # (x, y) canvas coords
+        self.selection_rect_id = None # ID rettangolo selezione
+        self.selection_coords_img = None # (x1, y1, x2, y2) image coords
+        
+        self.floating_pil_image = None # L'immagine ritagliata (in memoria corrente)
+        self.floating_tk_image = None  # L'immagine ritagliata (per display)
+        self.floating_image_id = None  # ID oggetto canvas image
+        self.floating_pos = (0, 0)     # Posizione attuale top-left (canvas coords)
+
         self.show_grid = False
         self.is_inverted = False
         self.channel_mode = "RGB" # RGB, R, G, B, H, S, V, L, Y, Cb, Cr
-        self.analysis_mode = "Normal" # Normal, Equalize, Edge
+        self.analysis_mode = "Normal" # Normal, Equalize, Edge, ELA
 
         # Eventi Mouse
-        self.canvas.bind("<ButtonPress-1>", self.start_pan)
-        self.canvas.bind("<B1-Motion>", self.pan_image)
+        self.canvas.bind("<ButtonPress-1>", self.on_mouse_down)
+        self.canvas.bind("<B1-Motion>", self.on_mouse_drag)
+        self.canvas.bind("<ButtonRelease-1>", self.on_mouse_up)
+        
         self.canvas.bind("<MouseWheel>", self.zoom_image) # Windows/MacOS
         self.canvas.bind("<Button-4>", self.zoom_image)   # Linux Scroll Up
         self.canvas.bind("<Button-5>", self.zoom_image)   # Linux Scroll Down
@@ -39,11 +59,31 @@ class ImageCanvas(ctk.CTkFrame):
     def set_image(self, pil_image):
         """Imposta una nuova immagine e resetta la vista."""
         self.original_image = pil_image
+        self.history = HistoryManager(max_steps=20) # Reset history per nuova immagine
         self.scale = 1.0
         self.pan_x = 0
         self.pan_y = 0
         self.fit_to_screen()
         self.redraw()
+        
+    def save_current_state(self):
+        """Salva lo stato corrente PRIMA di una modifica."""
+        if self.original_image:
+            self.history.push(self.original_image)
+
+    def perform_undo(self, event=None):
+        prev_img = self.history.undo(self.original_image)
+        if prev_img:
+            self.original_image = prev_img
+            self.redraw()
+            print("Undo effettuato")
+
+    def perform_redo(self, event=None):
+        next_img = self.history.redo(self.original_image)
+        if next_img:
+            self.original_image = next_img
+            self.redraw()
+            print("Redo effettuato")
 
     def fit_to_screen(self):
         """Adatta l'immagine alle dimensioni attuali del canvas."""
@@ -158,8 +198,12 @@ class ImageCanvas(ctk.CTkFrame):
         if self.analysis_mode != "Normal":
             try:
                 if img_to_process.mode == "RGBA": img_to_process = img_to_process.convert("RGB")
-                if self.analysis_mode == "Equalize": img_to_process = ImageOps.equalize(img_to_process)
-                elif self.analysis_mode == "Edge": img_to_process = img_to_process.filter(ImageFilter.FIND_EDGES)
+                if self.analysis_mode == "Equalize": 
+                    img_to_process = ImageOps.equalize(img_to_process)
+                elif self.analysis_mode == "Edge": 
+                    img_to_process = img_to_process.filter(ImageFilter.FIND_EDGES)
+                elif self.analysis_mode == "ELA":
+                    img_to_process = ImageProcessor.compute_ela(img_to_process)
             except Exception as e:
                 print(f"Errore analisi: {e}")
         return img_to_process
@@ -216,6 +260,196 @@ class ImageCanvas(ctk.CTkFrame):
                 return f"XY: {img_x},{img_y} | RGB: {r},{g},{b}"
             except Exception: return "Errore lettura"
         return "Fuori area"
+
+    def set_tool_mode(self, mode):
+        self.tool_mode = mode
+        if mode == "view":
+            self.canvas.config(cursor="")
+            self.clear_selection()
+        elif mode == "select":
+            self.canvas.config(cursor="crosshair")
+
+    def set_selection_shape(self, shape):
+        self.selection_shape = shape
+        self.clear_selection()
+        if self.tool_mode != "view":
+            self.set_tool_mode("select")
+
+    def clear_selection(self):
+        """Pulisce selezioni e immagini fluttuanti senza applicarle."""
+        if self.selection_rect_id: self.canvas.delete(self.selection_rect_id)
+        if self.floating_image_id: self.canvas.delete(self.floating_image_id)
+        self.selection_rect_id = None
+        self.floating_image_id = None
+        self.floating_pil_image = None
+        self.selection_coords_img = None
+        self.tool_mode = "view" if self.tool_mode == "move_floating" else self.tool_mode
+
+    # --- Conversione Coordinate ---
+    def canvas_to_image(self, cx, cy):
+        if not self.original_image: return 0, 0
+        ix = int((cx - self.pan_x) / self.scale)
+        iy = int((cy - self.pan_y) / self.scale)
+        return ix, iy
+
+    def image_to_canvas(self, ix, iy):
+        cx = int(ix * self.scale) + self.pan_x
+        cy = int(iy * self.scale) + self.pan_y
+        return cx, cy
+
+    # --- Gestione Eventi Mouse ---
+    def on_mouse_down(self, event):
+        if self.tool_mode == "view":
+            self.start_pan(event)
+        elif self.tool_mode == "select":
+            # Inizia selezione
+            self.selection_start = (event.x, event.y)
+            if self.selection_rect_id: self.canvas.delete(self.selection_rect_id)
+            
+            if self.selection_shape == "rect":
+                self.selection_rect_id = self.canvas.create_rectangle(event.x, event.y, event.x, event.y, outline="yellow", width=2, dash=(4, 2))
+            elif self.selection_shape == "oval":
+                self.selection_rect_id = self.canvas.create_oval(event.x, event.y, event.x, event.y, outline="cyan", width=2, dash=(4, 2))
+                
+        elif self.tool_mode == "move_floating":
+            # Inizia spostamento immagine incollata
+            self._drag_start_x = event.x
+            self._drag_start_y = event.y
+
+    def on_mouse_drag(self, event):
+        if self.tool_mode == "view":
+            self.pan_image(event)
+        elif self.tool_mode == "select":
+            # Aggiorna forma selezione
+            if self.selection_start and self.selection_rect_id:
+                x1, y1 = self.selection_start
+                self.canvas.coords(self.selection_rect_id, x1, y1, event.x, event.y)
+        elif self.tool_mode == "move_floating":
+            # Sposta l'immagine fluttuante
+            dx = event.x - self._drag_start_x
+            dy = event.y - self._drag_start_y
+            self.canvas.move(self.floating_image_id, dx, dy)
+            self._drag_start_x = event.x
+            self._drag_start_y = event.y
+            
+            # Aggiorna posizione salvata
+            coords = self.canvas.coords(self.floating_image_id)
+            self.floating_pos = (coords[0], coords[1])
+
+    def on_mouse_up(self, event):
+        if self.tool_mode == "select":
+            # Finalizza selezione
+            if not self.selection_start: return
+            x1, y1 = self.selection_start
+            x2, y2 = event.x, event.y
+            
+            # Normalizza coords
+            cx1, cx2 = min(x1, x2), max(x1, x2)
+            cy1, cy2 = min(y1, y2), max(y1, y2)
+            
+            # Se troppo piccolo, ignora
+            if cx2 - cx1 < 5 or cy2 - cy1 < 5:
+                self.clear_selection()
+                return
+
+            # Converti in coordinate immagine reale
+            ix1, iy1 = self.canvas_to_image(cx1, cy1)
+            ix2, iy2 = self.canvas_to_image(cx2, cy2)
+            
+            # Clamp ai bordi immagine
+            w, h = self.original_image.size
+            ix1, iy1 = max(0, ix1), max(0, iy1)
+            ix2, iy2 = min(w, ix2), min(h, iy2)
+            
+            self.selection_coords_img = (ix1, iy1, ix2, iy2)
+            self.create_floating_from_selection()
+
+    def create_floating_from_selection(self):
+        if not self.selection_coords_img or not self.original_image: return
+        
+        # Ritaglia il bounding box rettangolare
+        cropped_img = self.original_image.crop(self.selection_coords_img)
+        
+        # Se è Ovale, applichiamo una maschera alpha
+        if self.selection_shape == "oval":
+            w, h = cropped_img.size
+            mask = Image.new("L", (w, h), 0) # Nero = Trasparente
+            from PIL import ImageDraw
+            draw = ImageDraw.Draw(mask)
+            draw.ellipse((0, 0, w, h), fill=255) # Bianco = Opaco
+            
+            if cropped_img.mode != "RGBA":
+                cropped_img = cropped_img.convert("RGBA")
+            cropped_img.putalpha(mask)
+            
+        self.floating_pil_image = cropped_img
+        
+        # Rimuovi la selezione grafica
+        if self.selection_rect_id: self.canvas.delete(self.selection_rect_id)
+        
+        # Mostra oggetto fluttuante sul canvas
+        self.refresh_floating_image()
+        
+        # Passa a modalità spostamento
+        self.tool_mode = "move_floating"
+        self.canvas.config(cursor="fleur")
+
+    def refresh_floating_image(self):
+        """Ridisegna l'immagine fluttuante alla scala corretta."""
+        if not self.floating_pil_image: return
+        
+        if self.floating_image_id: self.canvas.delete(self.floating_image_id)
+        
+        # Scala per visualizzazione
+        w, h = self.floating_pil_image.size
+        new_w, new_h = int(w * self.scale), int(h * self.scale)
+        
+        if new_w > 0 and new_h > 0:
+            resample = Image.Resampling.NEAREST if self.scale > 2.0 else Image.Resampling.BILINEAR
+            img_display = self.floating_pil_image.resize((new_w, new_h), resample)
+            self.floating_tk_image = ImageTk.PhotoImage(img_display)
+            
+            if self.tool_mode == "select": 
+                ox, oy = self.image_to_canvas(self.selection_coords_img[0], self.selection_coords_img[1])
+                self.floating_pos = (ox, oy)
+            
+            self.floating_image_id = self.canvas.create_image(self.floating_pos[0], self.floating_pos[1], anchor="nw", image=self.floating_tk_image)
+
+    def apply_paste(self):
+        """Incolla definitivamente l'immagine fluttuante sull'originale."""
+        if not self.original_image or not self.floating_pil_image or not self.floating_image_id:
+            return
+
+        self.save_current_state()
+        
+        # Calcola posizione finale in coordinate immagine
+        cx, cy = self.canvas.coords(self.floating_image_id)
+        ix, iy = self.canvas_to_image(cx, cy)
+        
+        # Incolla con maschera se presente (es. Ovale)
+        if self.floating_pil_image.mode == "RGBA":
+            self.original_image.paste(self.floating_pil_image, (ix, iy), self.floating_pil_image)
+        else:
+            self.original_image.paste(self.floating_pil_image, (ix, iy))
+        
+        # Pulisci UI
+        self.clear_selection()
+        self.redraw()
+        print("Pasted!")
+        
+        # Torna a select
+        self.set_tool_mode("select") 
+
+    def update_floating_image(self, new_image):
+        """Aggiorna l'immagine fluttuante con una processata esternamente."""
+        if new_image:
+            self.floating_pil_image = new_image
+            self.refresh_floating_image()
+
+    def trigger_feathering(self):
+        if self.floating_pil_image:
+            self.floating_pil_image = ImageProcessor.apply_feathering(self.floating_pil_image, radius=2)
+            self.refresh_floating_image()
 
     def start_pan(self, event):
         self.canvas.scan_mark(event.x, event.y)

@@ -349,6 +349,45 @@ class ImageCanvas(ctk.CTkFrame):
         self.canvas.config(cursor="fleur")
 
 
+    def set_floating_image_from_external(self, pil_image):
+        """
+        Carica un'immagine esterna come layer fluttuante per lo Splicing.
+        """
+        if not pil_image or not self.original_image: return
+
+        # Converti e prepara
+        self.floating_base_ref = pil_image.convert("RGBA")
+        self.floating_pil_image = self.floating_base_ref.copy()
+        self.floating_angle = 0
+        self.floating_scale_val = 1.0
+        
+        # Posiziona al centro della vista attuale
+        # Calcola il centro della canvas visibile
+        cw, ch = self.canvas.winfo_width(), self.canvas.winfo_height()
+        cx, cy = cw // 2, ch // 2
+        
+        # Posiziona l'angolo in alto a sinistra dell'oggetto in modo che sia centrato
+        w, h = pil_image.size
+        # Scaliamo approssimativamente l'oggetto se è enorme rispetto alla vista
+        initial_scale = 1.0
+        if w > cw or h > ch:
+             initial_scale = min(cw/w, ch/h) * 0.5
+             self.floating_scale_val = initial_scale
+             self.apply_transformations() # Applica subito lo scale
+
+        # Centra coordinate canvas
+        final_w = int(w * self.scale * self.floating_scale_val)
+        final_h = int(h * self.scale * self.floating_scale_val)
+        
+        self.floating_pos = (cx - final_w//2, cy - final_h//2)
+        
+        self.selection_coords_img = None # Non deriva da una selezione interna
+        self.selection_rect_id = None
+        
+        self.tool_mode = "move_floating"
+        self.canvas.config(cursor="fleur")
+        self.refresh_floating_image()
+
     def apply_transformations(self, scale_percent=None, angle=None):
         if self.floating_base_ref is None: return
         if scale_percent is not None: self.floating_scale_val = float(scale_percent) / 100.0

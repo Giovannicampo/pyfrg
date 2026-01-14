@@ -2,6 +2,7 @@ import tkinter as tk
 import customtkinter as ctk
 from PIL import Image, ImageTk, ImageOps, ImageFilter
 import colorsys
+import math
 from core.image_processor import ImageProcessor
 from core.history_manager import HistoryManager
 
@@ -49,6 +50,7 @@ class ImageCanvas(ctk.CTkFrame):
         self.canvas.bind("<ButtonPress-1>", self.on_mouse_down)
         self.canvas.bind("<B1-Motion>", self.on_mouse_drag)
         self.canvas.bind("<ButtonRelease-1>", self.on_mouse_up)
+        self.canvas.bind("<Motion>", self.on_mouse_move)
         self.canvas.bind("<MouseWheel>", self.zoom_image)
         self.canvas.bind("<Button-4>", self.zoom_image)
         self.canvas.bind("<Button-5>", self.zoom_image)
@@ -244,15 +246,17 @@ class ImageCanvas(ctk.CTkFrame):
         return int(ix * self.scale) + self.pan_x, int(iy * self.scale) + self.pan_y
 
     def on_mouse_down(self, event):
+        self._drag_start_x, self._drag_start_y = event.x, event.y
+        
         if self.tool_mode == "view":
             self.canvas.scan_mark(event.x, event.y)
-            self._drag_start_x, self._drag_start_y = event.x, event.y
+            
         elif self.tool_mode == "select":
             self.selection_start = (event.x, event.y)
             self.selection_points = [(event.x, event.y)]
             if self.selection_rect_id: self.canvas.delete(self.selection_rect_id)
             
-            color = "#00ffff" # Cyan acceso
+            color = "#00ffff"
             if self.selection_shape == "rect":
                 self.selection_rect_id = self.canvas.create_rectangle(event.x, event.y, event.x, event.y, outline=color, width=2, dash=(4, 4))
             elif self.selection_shape == "oval":
@@ -261,7 +265,38 @@ class ImageCanvas(ctk.CTkFrame):
                 self.selection_rect_id = self.canvas.create_line(event.x, event.y, event.x, event.y, fill=color, width=2, dash=(4, 4), tags="free_line")
                 
         elif self.tool_mode == "move_floating":
-            self._drag_start_x, self._drag_start_y = event.x, event.y
+            # Check if clicked on a handle
+            clicked = self.canvas.find_overlapping(event.x-2, event.y-2, event.x+2, event.y+2)
+            tags = []
+            for item in clicked:
+                tags.extend(self.canvas.gettags(item))
+            
+            self._interaction_mode = "move" # default
+            
+            if "handle_rot" in tags:
+                self._interaction_mode = "rotate"
+                # Calcola angolo iniziale del click
+                w, h = self.floating_pil_image.size
+                dw, dh = int(w * self.scale), int(h * self.scale)
+                cx = self.floating_pos[0] + dw / 2
+                cy = self.floating_pos[1] + dh / 2
+                self._start_angle_ref = math.degrees(math.atan2(event.y - cy, event.x - cx))
+                self._base_angle = self.floating_angle
+                
+            elif "handle" in tags: # Any resize handle
+                self._interaction_mode = "scale"
+                # Salva distanza iniziale dal centro
+                w, h = self.floating_pil_image.size
+                dw, dh = int(w * self.scale), int(h * self.scale)
+                cx = self.floating_pos[0] + dw / 2
+                cy = self.floating_pos[1] + dh / 2
+                self._start_dist = math.hypot(event.x - cx, event.y - cy)
+                self._base_scale = self.floating_scale_val
+                self._center_ref = (cx, cy)
+            
+            else:
+                self._interaction_mode = "move"
+                self._start_pos = self.floating_pos
 
     def on_mouse_drag(self, event):
         if self.tool_mode == "view":
@@ -270,22 +305,90 @@ class ImageCanvas(ctk.CTkFrame):
             self.pan_y += dy
             self._drag_start_x, self._drag_start_y = event.x, event.y
             self.redraw()
-        elif self.tool_mode == "select":
-            if self.selection_start:
-                if self.selection_shape == "free":
-                    self.selection_points.append((event.x, event.y))
-                    # Aggiorna la linea a mano libera
-                    flat_points = [p for sub in self.selection_points for p in sub]
-                    self.canvas.coords(self.selection_rect_id, *flat_points)
-                else:
-                    x1, y1 = self.selection_start
-                    self.canvas.coords(self.selection_rect_id, x1, y1, event.x, event.y)
+            
+        elif self.tool_mode == "select" and self.selection_start:
+            if self.selection_shape == "free":
+                self.selection_points.append((event.x, event.y))
+                flat_points = [p for sub in self.selection_points for p in sub]
+                self.canvas.coords(self.selection_rect_id, *flat_points)
+            else:
+                x1, y1 = self.selection_start
+                self.canvas.coords(self.selection_rect_id, x1, y1, event.x, event.y)
+                
         elif self.tool_mode == "move_floating":
-            dx, dy = event.x - self._drag_start_x, event.y - self._drag_start_y
-            self.canvas.move(self.floating_image_id, dx, dy)
-            self._drag_start_x, self._drag_start_y = event.x, event.y
-            coords = self.canvas.coords(self.floating_image_id)
-            self.floating_pos = (coords[0], coords[1])
+            
+            if self._interaction_mode == "move":
+                dx, dy = event.x - self._drag_start_x, event.y - self._drag_start_y
+                self.floating_pos = (self._start_pos[0] + (event.x - self._drag_start_x), 
+                                     self._start_pos[1] + (event.y - self._drag_start_y))
+                
+                # Muovi tutto (immagine e overlay)
+                self.refresh_floating_image()
+                
+            elif self._interaction_mode == "scale":
+                cx, cy = self._center_ref
+                cur_dist = math.hypot(event.x - cx, event.y - cy)
+                if self._start_dist > 0:
+                    ratio = cur_dist / self._start_dist
+                    new_scale = self._base_scale * ratio
+                    # Limiti di sicurezza
+                    new_scale = max(0.1, min(new_scale, 5.0))
+                    
+                    # Centered scaling logic:
+                    # 1. Update scale value
+                    self.floating_scale_val = new_scale
+                    
+                    # 2. Recalculate image
+                    self.apply_transformations(scale_percent=None) # Use internal values
+                    
+                    # 3. Re-center: apply_transformations changed the size, so top-left floating_pos must shift
+                    # to keep the center at cx, cy
+                    w, h = self.floating_pil_image.size
+                    dw, dh = int(w * self.scale), int(h * self.scale)
+                    self.floating_pos = (cx - dw/2, cy - dh/2)
+                    
+                    self.refresh_floating_image()
+                    
+            elif self._interaction_mode == "rotate":
+                # Calcola centro dinamicamente
+                w, h = self.floating_pil_image.size
+                dw, dh = int(w * self.scale), int(h * self.scale)
+                cx = self.floating_pos[0] + dw / 2
+                cy = self.floating_pos[1] + dh / 2
+                
+                cur_angle = math.degrees(math.atan2(event.y - cy, event.x - cx))
+                delta = cur_angle - self._start_angle_ref
+                
+                self.floating_angle = self._base_angle + delta
+                
+                # Come per scale, la rotazione cambia il bounding box (expand=True), quindi dobbiamo ricentrare
+                self.apply_transformations(angle=None)
+                
+                w_new, h_new = self.floating_pil_image.size
+                dw_new, dh_new = int(w_new * self.scale), int(h_new * self.scale)
+                self.floating_pos = (cx - dw_new/2, cy - dh_new/2)
+                
+                self.refresh_floating_image()
+
+    def on_mouse_move(self, event):
+        # Gestione cursore
+        if self.tool_mode == "move_floating":
+            # Check overlap con tolleranza
+            clicked = self.canvas.find_overlapping(event.x-2, event.y-2, event.x+2, event.y+2)
+            tags = []
+            for item in clicked:
+                tags.extend(self.canvas.gettags(item))
+                
+            if "handle_rot" in tags:
+                self.canvas.config(cursor="exchange") # O altro cursore rotazione
+            elif "handle" in tags:
+                self.canvas.config(cursor="sizing") # O doppio arrow
+            else:
+                self.canvas.config(cursor="fleur")
+        elif self.tool_mode == "select":
+             self.canvas.config(cursor="crosshair")
+        else:
+             self.canvas.config(cursor="")
 
     def on_mouse_up(self, event):
         if self.tool_mode == "select" and self.selection_start:
@@ -313,6 +416,8 @@ class ImageCanvas(ctk.CTkFrame):
             self.selection_coords_img = (max(0, ix1), max(0, iy1), min(w, ix2), min(h, iy2))
             
             self.create_floating_from_selection()
+            
+        self._interaction_mode = None
 
     def create_floating_from_selection(self):
         if not self.selection_coords_img: return
@@ -400,20 +505,110 @@ class ImageCanvas(ctk.CTkFrame):
         self.floating_pil_image = transformed
         self.refresh_floating_image()
 
+    def _get_corners(self, w, h, angle_deg, cx, cy):
+        """Calcola i 4 angoli dell'immagine ruotata rispetto al centro cx,cy."""
+        rad = math.radians(angle_deg)
+        cos_a = math.cos(rad)
+        sin_a = math.sin(rad)
+        
+        # Coordinate relative al centro (metà larghezza, metà altezza)
+        hw, hh = w / 2.0, h / 2.0
+        
+        # 4 vertici: TL, TR, BR, BL
+        # Nota: in canvas Y cresce verso il basso
+        corners = [
+            (-hw, -hh), (hw, -hh), (hw, hh), (-hw, hh)
+        ]
+        
+        rotated_corners = []
+        for x, y in corners:
+            # Rotazione 2D
+            rx = x * cos_a - y * sin_a
+            ry = x * sin_a + y * cos_a
+            rotated_corners.append((cx + rx, cy + ry))
+            
+        return rotated_corners
+
     def refresh_floating_image(self):
+        # Pulisce i vecchi elementi grafici dell'overlay
+        self.canvas.delete("overlay_ui")
+        
         if not self.floating_pil_image: return
         if self.floating_image_id: self.canvas.delete(self.floating_image_id)
+        
+        # 1. Disegna l'immagine
         w, h = self.floating_pil_image.size
         dw, dh = int(w * self.scale), int(h * self.scale)
+        
         if dw > 0 and dh > 0:
             img_display = self.floating_pil_image.resize((dw, dh), Image.Resampling.BILINEAR)
             self.floating_tk_image = ImageTk.PhotoImage(img_display)
             
+            # Se siamo in fase di spostamento/select, la posizione è definita.
+            # Altrimenti, calcoliamo la posizione per centrare l'immagine se necessario, 
+            # ma qui assumiamo che self.floating_pos sia l'angolo Top-Left del bounding box NON RUOTATO.
+            # Tuttavia, con la rotazione, floating_pos diventa ambiguo. 
+            # Convenzione: self.floating_pos è sempre l'angolo Top-Left del rettangolo che contiene l'immagine (visuale).
+            
             # Aggiorna posizione solo se siamo in modalità selezione attiva con coordinate valide
             if self.tool_mode == "select" and self.selection_coords_img:
                 self.floating_pos = self.image_to_canvas(self.selection_coords_img[0], self.selection_coords_img[1])
+
+            self.floating_image_id = self.canvas.create_image(
+                self.floating_pos[0], self.floating_pos[1], 
+                anchor="nw", image=self.floating_tk_image
+            )
             
-            self.floating_image_id = self.canvas.create_image(self.floating_pos[0], self.floating_pos[1], anchor="nw", image=self.floating_tk_image)
+            # 2. Se siamo in modalità di modifica (move_floating), disegna le maniglie
+            if self.tool_mode == "move_floating":
+                # Calcoliamo il centro attuale dell'immagine visualizzata
+                # L'immagine visualizzata da PIL è già ruotata e include il padding trasparente?
+                # Se floating_pil_image è il risultato di rotate(expand=True), allora floating_pos è il top-left del bounding box.
+                # Il centro reale dell'immagine è semplicemente al centro di dw, dh
+                cx = self.floating_pos[0] + dw / 2
+                cy = self.floating_pos[1] + dh / 2
+                
+                # Per disegnare le maniglie correttamente orientate, dobbiamo sapere le dimensioni originali (pre-rotazione) scalate
+                # Ma floating_pil_image è GIA' ruotata. Questo complica le cose.
+                # APPROCCIO SEMPLIFICATO: Disegniamo un box attorno all'immagine corrente (che è il bounding box dell'immagine ruotata)
+                # Questo è lo stile standard quando si usa rotate(expand=True).
+                
+                # Disegna Box Contenitore
+                rect_coords = (
+                    self.floating_pos[0], self.floating_pos[1],
+                    self.floating_pos[0] + dw, self.floating_pos[1] + dh
+                )
+                self.canvas.create_rectangle(*rect_coords, outline="#00ffff", width=1, tags="overlay_ui")
+                
+                # Maniglie Angolari (Resize)
+                handle_size = 8
+                corners = [
+                    (rect_coords[0], rect_coords[1]), # TL
+                    (rect_coords[2], rect_coords[1]), # TR
+                    (rect_coords[2], rect_coords[3]), # BR
+                    (rect_coords[0], rect_coords[3])  # BL
+                ]
+                tags = ["handle_tl", "handle_tr", "handle_br", "handle_bl"]
+                
+                for i, (hx, hy) in enumerate(corners):
+                    self.canvas.create_rectangle(
+                        hx - handle_size/2, hy - handle_size/2,
+                        hx + handle_size/2, hy + handle_size/2,
+                        fill="white", outline="#00ffff", tags=("overlay_ui", "handle", tags[i])
+                    )
+                
+                # Maniglia Rotazione (Top)
+                # La posizioniamo sopra il lato superiore
+                top_mid_x = (rect_coords[0] + rect_coords[2]) / 2
+                top_mid_y = rect_coords[1]
+                rot_handle_y = top_mid_y - 20
+                
+                self.canvas.create_line(top_mid_x, top_mid_y, top_mid_x, rot_handle_y, fill="#00ffff", tags="overlay_ui")
+                self.canvas.create_oval(
+                    top_mid_x - 5, rot_handle_y - 5,
+                    top_mid_x + 5, rot_handle_y + 5,
+                    fill="#00ffff", tags=("overlay_ui", "handle_rot")
+                )
 
     def apply_paste(self):
         if not self.original_image or not self.floating_pil_image: return

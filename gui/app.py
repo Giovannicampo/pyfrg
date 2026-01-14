@@ -360,6 +360,7 @@ class ForgeryApp(ctk.CTk):
 
     def on_mouse_move(self, event):
         self.pixel_info.configure(text=self.image_canvas.get_pixel_data(event.x, event.y))
+        self.image_canvas.on_mouse_move(event)
 
     def zoom(self, f):
         if self.image_canvas.original_image:

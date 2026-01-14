@@ -174,16 +174,6 @@ class ForgeryApp(ctk.CTk):
             btn_fit = ctk.CTkButton(self.forge_frame, text="Fit", width=30, fg_color="#444", command=self.image_canvas.fit_to_screen)
             btn_fit.pack(side="left", padx=2)
 
-            ctk.CTkLabel(self.forge_frame, text="S:", font=("Arial", 11)).pack(side="left", padx=2)
-            self.slider_scale = ctk.CTkSlider(self.forge_frame, from_=10, to=200, width=80, command=self.update_floating_scale)
-            self.slider_scale.set(100)
-            self.slider_scale.pack(side="left", padx=2)
-
-            ctk.CTkLabel(self.forge_frame, text="R:", font=("Arial", 11)).pack(side="left", padx=2)
-            self.slider_rotate = ctk.CTkSlider(self.forge_frame, from_=-180, to=180, width=80, command=self.update_floating_rotate)
-            self.slider_rotate.set(0)
-            self.slider_rotate.pack(side="left", padx=2)
-
             ctk.CTkFrame(self.forge_frame, width=1, height=20, fg_color="#444").pack(side="left", padx=5)
 
             # --- PROCESSING TOOLS ---
@@ -211,8 +201,6 @@ class ForgeryApp(ctk.CTk):
         if path:
             img = Image.open(path)
             self.image_canvas.set_floating_image_from_external(img)
-            self.slider_scale.set(100)
-            self.slider_rotate.set(0)
             self.btn_rect.configure(fg_color="#333")
             self.btn_oval.configure(fg_color="#333")
             self.btn_free.configure(fg_color="#333")

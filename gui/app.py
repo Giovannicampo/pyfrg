@@ -122,23 +122,18 @@ class ForgeryApp(ctk.CTk):
         self.btn_meta = ctk.CTkButton(self.sidebar, text="  Metadata", command=lambda: self.show_page("meta"), **btn_style)
         self.btn_meta.pack(fill="x", pady=2)
 
-        self.btn_copymove = ctk.CTkButton(self.sidebar, text="  Copy-Move", command=lambda: self.show_page("copymove"), **btn_style)
-        self.btn_copymove.pack(fill="x", pady=2)
-
-        self.btn_splicing = ctk.CTkButton(self.sidebar, text="  Splicing", command=lambda: self.show_page("splicing"), **btn_style)
-        self.btn_splicing.pack(fill="x", pady=2)
+        self.btn_forge = ctk.CTkButton(self.sidebar, text="  Forgery Tools", command=lambda: self.show_page("forge"), **btn_style)
+        self.btn_forge.pack(fill="x", pady=2)
 
     def show_page(self, page):
         self.btn_view.configure(fg_color="#8B0000" if page=="view" else "transparent")
         self.btn_meta.configure(fg_color="#8B0000" if page=="meta" else "transparent")
-        self.btn_copymove.configure(fg_color="#8B0000" if page=="copymove" else "transparent")
-        self.btn_splicing.configure(fg_color="#8B0000" if page=="splicing" else "transparent")
+        self.btn_forge.configure(fg_color="#8B0000" if page=="forge" else "transparent")
         
         self.metadata_view.grid_forget()
         self.toolbar.grid_forget()
         self.image_canvas.grid_forget()
-        if hasattr(self, 'copymove_frame'): self.copymove_frame.grid_forget()
-        if hasattr(self, 'splicing_frame'): self.splicing_frame.grid_forget()
+        if hasattr(self, 'forge_frame'): self.forge_frame.grid_forget()
 
         if page == "view":
             self.toolbar.grid(row=0, column=0, sticky="ew", pady=(0, 5))
@@ -147,127 +142,80 @@ class ForgeryApp(ctk.CTk):
         elif page == "meta":
             self.metadata_view.grid(row=0, column=0, rowspan=2, sticky="nsew")
             self.update_metadata_ui()
-        elif page == "copymove":
+        elif page == "forge":
             self.image_canvas.grid(row=1, column=0, sticky="nsew") 
-            self.setup_copymove_page()
-            self.copymove_frame.grid(row=0, column=0, sticky="ew", pady=(0, 5))
+            self.setup_forgery_page()
+            self.forge_frame.grid(row=0, column=0, sticky="ew", pady=(0, 5))
             self.start_selection_mode()
-        elif page == "splicing":
-            self.image_canvas.grid(row=1, column=0, sticky="nsew")
-            self.setup_splicing_page()
-            self.splicing_frame.grid(row=0, column=0, sticky="ew", pady=(0, 5))
-            if hasattr(self, 'slider_scale_spl'): self.slider_scale_spl.set(100)
-            if hasattr(self, 'slider_rotate_spl'): self.slider_rotate_spl.set(0)
 
-    def setup_splicing_page(self):
-        if not hasattr(self, 'splicing_frame'):
-            self.splicing_frame = ctk.CTkFrame(self.main_container, height=50, fg_color="#222")
+    def setup_forgery_page(self):
+        if not hasattr(self, 'forge_frame'):
+            self.forge_frame = ctk.CTkFrame(self.main_container, height=50, fg_color="#222")
             
-            # Load Object Button
-            btn_load_obj = ctk.CTkButton(self.splicing_frame, text="Load Object", command=self.load_splicing_asset, width=90, fg_color="#444")
-            btn_load_obj.pack(side="left", padx=(10, 5))
+            # --- SOURCE TOOLS ---
+            btn_load_obj = ctk.CTkButton(self.forge_frame, text="Load Obj", command=self.load_external_asset, width=60, fg_color="#444")
+            btn_load_obj.pack(side="left", padx=(10, 2))
             
-            ctk.CTkFrame(self.splicing_frame, width=1, height=20, fg_color="#444").pack(side="left", padx=5)
+            ctk.CTkFrame(self.forge_frame, width=1, height=20, fg_color="#444").pack(side="left", padx=5)
 
-            # Fit Button
-            btn_fit = ctk.CTkButton(self.splicing_frame, text="Fit", width=40, fg_color="#444", command=self.image_canvas.fit_to_screen)
+            # Copy-Move Selectors
+            self.btn_rect = ctk.CTkButton(self.forge_frame, text="Rect", width=40, fg_color="#555", command=lambda: self.set_selection_shape("rect"))
+            self.btn_rect.pack(side="left", padx=2)
+            
+            self.btn_oval = ctk.CTkButton(self.forge_frame, text="Oval", width=40, fg_color="#333", command=lambda: self.set_selection_shape("oval"))
+            self.btn_oval.pack(side="left", padx=2)
+            
+            self.btn_free = ctk.CTkButton(self.forge_frame, text="Free", width=40, fg_color="#333", command=lambda: self.set_selection_shape("free"))
+            self.btn_free.pack(side="left", padx=2)
+
+            ctk.CTkFrame(self.forge_frame, width=1, height=20, fg_color="#444").pack(side="left", padx=5)
+
+            # --- MANIPULATION TOOLS ---
+            btn_fit = ctk.CTkButton(self.forge_frame, text="Fit", width=30, fg_color="#444", command=self.image_canvas.fit_to_screen)
             btn_fit.pack(side="left", padx=2)
+
+            ctk.CTkLabel(self.forge_frame, text="S:", font=("Arial", 11)).pack(side="left", padx=2)
+            self.slider_scale = ctk.CTkSlider(self.forge_frame, from_=10, to=200, width=80, command=self.update_floating_scale)
+            self.slider_scale.set(100)
+            self.slider_scale.pack(side="left", padx=2)
+
+            ctk.CTkLabel(self.forge_frame, text="R:", font=("Arial", 11)).pack(side="left", padx=2)
+            self.slider_rotate = ctk.CTkSlider(self.forge_frame, from_=-180, to=180, width=80, command=self.update_floating_rotate)
+            self.slider_rotate.set(0)
+            self.slider_rotate.pack(side="left", padx=2)
+
+            ctk.CTkFrame(self.forge_frame, width=1, height=20, fg_color="#444").pack(side="left", padx=5)
+
+            # --- PROCESSING TOOLS ---
+            self.loading_bar = ctk.CTkProgressBar(self.forge_frame, width=50, mode="indeterminate", height=8)
             
-            ctk.CTkFrame(self.splicing_frame, width=1, height=20, fg_color="#444").pack(side="left", padx=5)
+            self.btn_mask = ctk.CTkButton(self.forge_frame, text="Mask", command=self.run_auto_mask_thread, width=40, fg_color="#444")
+            self.btn_mask.pack(side="left", padx=2)
 
-            # Transformation Sliders
-            ctk.CTkLabel(self.splicing_frame, text="S:", font=("Arial", 11)).pack(side="left", padx=2)
-            self.slider_scale_spl = ctk.CTkSlider(self.splicing_frame, from_=10, to=200, width=80, command=self.update_floating_scale)
-            self.slider_scale_spl.set(100)
-            self.slider_scale_spl.pack(side="left", padx=2)
-
-            ctk.CTkLabel(self.splicing_frame, text="R:", font=("Arial", 11)).pack(side="left", padx=2)
-            self.slider_rotate_spl = ctk.CTkSlider(self.splicing_frame, from_=-180, to=180, width=80, command=self.update_floating_rotate)
-            self.slider_rotate_spl.set(0)
-            self.slider_rotate_spl.pack(side="left", padx=2)
-
-            ctk.CTkFrame(self.splicing_frame, width=1, height=20, fg_color="#444").pack(side="left", padx=5)
-
-            # Processing Tools
-            self.loading_bar_spl = ctk.CTkProgressBar(self.splicing_frame, width=60, mode="indeterminate", height=8)
-            
-            self.btn_mask_spl = ctk.CTkButton(self.splicing_frame, text="Mask", command=lambda: self.run_auto_mask_thread(is_splicing=True), width=50, fg_color="#444")
-            self.btn_mask_spl.pack(side="left", padx=2)
-
-            btn_feather = ctk.CTkButton(self.splicing_frame, text="Blur", command=self.image_canvas.trigger_feathering, width=50, fg_color="#444")
+            btn_feather = ctk.CTkButton(self.forge_frame, text="Blur", command=self.image_canvas.trigger_feathering, width=40, fg_color="#444")
             btn_feather.pack(side="left", padx=2)
 
-            ctk.CTkFrame(self.splicing_frame, width=1, height=20, fg_color="#444").pack(side="left", padx=5)
+            ctk.CTkFrame(self.forge_frame, width=1, height=20, fg_color="#444").pack(side="left", padx=5)
 
-            btn_apply = ctk.CTkButton(self.splicing_frame, text="Paste", command=self.apply_tool, width=50, fg_color="green")
+            # --- ACTION TOOLS ---
+            btn_apply = ctk.CTkButton(self.forge_frame, text="Paste", command=self.apply_tool, width=50, fg_color="green")
             btn_apply.pack(side="left", padx=2)
 
-            btn_clear = ctk.CTkButton(self.splicing_frame, text="Cancel", command=self.clear_tool_selection, width=50, fg_color="#8B0000")
+            btn_clear = ctk.CTkButton(self.forge_frame, text="Cancel", command=self.clear_tool_selection, width=50, fg_color="#8B0000")
             btn_clear.pack(side="left", padx=2)
 
-    def load_splicing_asset(self):
+    def load_external_asset(self):
         if not self.image_canvas.original_image:
-            print("Carica prima un'immagine di base!")
             return
-            
         path = filedialog.askopenfilename(filetypes=[("Images", "*.png *.jpg *.jpeg *.webp *.bmp")])
         if path:
             img = Image.open(path)
             self.image_canvas.set_floating_image_from_external(img)
-            # Reset sliders
-            if hasattr(self, 'slider_scale_spl'): self.slider_scale_spl.set(100)
-            if hasattr(self, 'slider_rotate_spl'): self.slider_rotate_spl.set(0)
-
-    def setup_copymove_page(self):
-        if not hasattr(self, 'copymove_frame'):
-            self.copymove_frame = ctk.CTkFrame(self.main_container, height=50, fg_color="#222")
-            
-            # Fit Button
-            btn_fit = ctk.CTkButton(self.copymove_frame, text="Fit", width=40, fg_color="#444", command=self.image_canvas.fit_to_screen)
-            btn_fit.pack(side="left", padx=(5, 2))
-            
-            ctk.CTkFrame(self.copymove_frame, width=1, height=20, fg_color="#444").pack(side="left", padx=5)
-            
-            # Selectors
-            self.btn_rect = ctk.CTkButton(self.copymove_frame, text="Rect", width=50, fg_color="#555", command=lambda: self.set_selection_shape("rect"))
-            self.btn_rect.pack(side="left", padx=2)
-            
-            self.btn_oval = ctk.CTkButton(self.copymove_frame, text="Oval", width=50, fg_color="#333", command=lambda: self.set_selection_shape("oval"))
-            self.btn_oval.pack(side="left", padx=2)
-            
-            self.btn_free = ctk.CTkButton(self.copymove_frame, text="Free", width=50, fg_color="#333", command=lambda: self.set_selection_shape("free"))
-            self.btn_free.pack(side="left", padx=2)
-
-            ctk.CTkFrame(self.copymove_frame, width=1, height=20, fg_color="#444").pack(side="left", padx=5)
-
-            # Transformation Sliders (Compact)
-            ctk.CTkLabel(self.copymove_frame, text="S:", font=("Arial", 11)).pack(side="left", padx=2)
-            self.slider_scale = ctk.CTkSlider(self.copymove_frame, from_=10, to=200, width=80, command=self.update_floating_scale)
             self.slider_scale.set(100)
-            self.slider_scale.pack(side="left", padx=2)
-
-            ctk.CTkLabel(self.copymove_frame, text="R:", font=("Arial", 11)).pack(side="left", padx=2)
-            self.slider_rotate = ctk.CTkSlider(self.copymove_frame, from_=-180, to=180, width=80, command=self.update_floating_rotate)
             self.slider_rotate.set(0)
-            self.slider_rotate.pack(side="left", padx=2)
-
-            ctk.CTkFrame(self.copymove_frame, width=1, height=20, fg_color="#444").pack(side="left", padx=5)
-
-            self.loading_bar = ctk.CTkProgressBar(self.copymove_frame, width=60, mode="indeterminate", height=8)
-            
-            self.btn_mask = ctk.CTkButton(self.copymove_frame, text="Mask", command=self.run_auto_mask_thread, width=50, fg_color="#444")
-            self.btn_mask.pack(side="left", padx=2)
-
-            btn_feather = ctk.CTkButton(self.copymove_frame, text="Blur", command=self.image_canvas.trigger_feathering, width=50, fg_color="#444")
-            btn_feather.pack(side="left", padx=2)
-
-            ctk.CTkFrame(self.copymove_frame, width=1, height=20, fg_color="#444").pack(side="left", padx=5)
-
-            btn_apply = ctk.CTkButton(self.copymove_frame, text="Paste", command=self.apply_tool, width=50, fg_color="green")
-            btn_apply.pack(side="left", padx=2)
-
-            btn_clear = ctk.CTkButton(self.copymove_frame, text="Cancel", command=self.clear_tool_selection, width=50, fg_color="#8B0000")
-            btn_clear.pack(side="left", padx=2)
+            self.btn_rect.configure(fg_color="#333")
+            self.btn_oval.configure(fg_color="#333")
+            self.btn_free.configure(fg_color="#333")
 
     def update_floating_scale(self, val):
         self.image_canvas.apply_transformations(scale_percent=val)
@@ -275,33 +223,25 @@ class ForgeryApp(ctk.CTk):
     def update_floating_rotate(self, val):
         self.image_canvas.apply_transformations(angle=val)
 
-    def run_auto_mask_thread(self, is_splicing=False):
+    def run_auto_mask_thread(self):
         if not self.image_canvas.floating_pil_image: return
-        
-        target_bar = self.loading_bar_spl if is_splicing else self.loading_bar
-        target_btn = self.btn_mask_spl if is_splicing else self.btn_mask
-        
-        target_bar.pack(side="left", padx=10)
-        target_bar.start()
-        target_btn.configure(state="disabled")
-        
-        threading.Thread(target=self._bg_remove_task, args=(is_splicing,), daemon=True).start()
+        self.loading_bar.pack(side="left", padx=10)
+        self.loading_bar.start()
+        self.btn_mask.configure(state="disabled")
+        threading.Thread(target=self._bg_remove_task, daemon=True).start()
 
-    def _bg_remove_task(self, is_splicing=False):
+    def _bg_remove_task(self):
         try:
             img_in = self.image_canvas.floating_pil_image.copy()
             img_out = ImageProcessor.smart_background_remove(img_in)
-            self.after(0, lambda: self._on_bg_remove_done(img_out, is_splicing))
+            self.after(0, lambda: self._on_bg_remove_done(img_out))
         except:
-            self.after(0, lambda: self._on_bg_remove_done(None, is_splicing))
+            self.after(0, lambda: self._on_bg_remove_done(None))
 
-    def _on_bg_remove_done(self, result, is_splicing=False):
-        target_bar = self.loading_bar_spl if is_splicing else self.loading_bar
-        target_btn = self.btn_mask_spl if is_splicing else self.btn_mask
-
-        target_bar.stop()
-        target_bar.pack_forget()
-        target_btn.configure(state="normal")
+    def _on_bg_remove_done(self, result):
+        self.loading_bar.stop()
+        self.loading_bar.pack_forget()
+        self.btn_mask.configure(state="normal")
         if result: self.image_canvas.update_floating_image(result)
 
     def set_selection_shape(self, shape):

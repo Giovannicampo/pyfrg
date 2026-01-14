@@ -152,47 +152,52 @@ class ForgeryApp(ctk.CTk):
         if not hasattr(self, 'copymove_frame'):
             self.copymove_frame = ctk.CTkFrame(self.main_container, height=50, fg_color="#222")
             
-            ctk.CTkLabel(self.copymove_frame, text="Copy-Move Tools", font=("Arial", 12, "bold"), text_color="gray").pack(side="left", padx=(15, 5))
+            # Fit Button
+            btn_fit = ctk.CTkButton(self.copymove_frame, text="Fit", width=40, fg_color="#444", command=self.image_canvas.fit_to_screen)
+            btn_fit.pack(side="left", padx=(5, 2))
             
-            self.btn_rect = ctk.CTkButton(self.copymove_frame, text="Rect", width=60, fg_color="#555", command=lambda: self.set_selection_shape("rect"))
+            ctk.CTkFrame(self.copymove_frame, width=1, height=20, fg_color="#444").pack(side="left", padx=5)
+            
+            # Selectors
+            self.btn_rect = ctk.CTkButton(self.copymove_frame, text="Rect", width=50, fg_color="#555", command=lambda: self.set_selection_shape("rect"))
             self.btn_rect.pack(side="left", padx=2)
             
-            self.btn_oval = ctk.CTkButton(self.copymove_frame, text="Oval", width=60, fg_color="#333", command=lambda: self.set_selection_shape("oval"))
+            self.btn_oval = ctk.CTkButton(self.copymove_frame, text="Oval", width=50, fg_color="#333", command=lambda: self.set_selection_shape("oval"))
             self.btn_oval.pack(side="left", padx=2)
             
-            self.btn_free = ctk.CTkButton(self.copymove_frame, text="Free", width=60, fg_color="#333", command=lambda: self.set_selection_shape("free"))
+            self.btn_free = ctk.CTkButton(self.copymove_frame, text="Free", width=50, fg_color="#333", command=lambda: self.set_selection_shape("free"))
             self.btn_free.pack(side="left", padx=2)
 
-            ctk.CTkFrame(self.copymove_frame, width=1, height=20, fg_color="#444").pack(side="left", padx=10)
+            ctk.CTkFrame(self.copymove_frame, width=1, height=20, fg_color="#444").pack(side="left", padx=5)
 
-            # --- TRANSFORMATION SLIDERS ---
-            ctk.CTkLabel(self.copymove_frame, text="Scale:", font=("Arial", 11)).pack(side="left", padx=2)
-            self.slider_scale = ctk.CTkSlider(self.copymove_frame, from_=10, to=200, width=100, command=self.update_floating_scale)
+            # Transformation Sliders (Compact)
+            ctk.CTkLabel(self.copymove_frame, text="S:", font=("Arial", 11)).pack(side="left", padx=2)
+            self.slider_scale = ctk.CTkSlider(self.copymove_frame, from_=10, to=200, width=80, command=self.update_floating_scale)
             self.slider_scale.set(100)
-            self.slider_scale.pack(side="left", padx=5)
+            self.slider_scale.pack(side="left", padx=2)
 
-            ctk.CTkLabel(self.copymove_frame, text="Rotate:", font=("Arial", 11)).pack(side="left", padx=2)
-            self.slider_rotate = ctk.CTkSlider(self.copymove_frame, from_=-180, to=180, width=100, command=self.update_floating_rotate)
+            ctk.CTkLabel(self.copymove_frame, text="R:", font=("Arial", 11)).pack(side="left", padx=2)
+            self.slider_rotate = ctk.CTkSlider(self.copymove_frame, from_=-180, to=180, width=80, command=self.update_floating_rotate)
             self.slider_rotate.set(0)
-            self.slider_rotate.pack(side="left", padx=5)
+            self.slider_rotate.pack(side="left", padx=2)
 
-            ctk.CTkFrame(self.copymove_frame, width=1, height=20, fg_color="#444").pack(side="left", padx=10)
+            ctk.CTkFrame(self.copymove_frame, width=1, height=20, fg_color="#444").pack(side="left", padx=5)
 
-            self.loading_bar = ctk.CTkProgressBar(self.copymove_frame, width=100, mode="indeterminate", height=8)
+            self.loading_bar = ctk.CTkProgressBar(self.copymove_frame, width=60, mode="indeterminate", height=8)
             
-            self.btn_mask = ctk.CTkButton(self.copymove_frame, text="Auto Mask", command=self.run_auto_mask_thread, width=80, fg_color="#444")
+            self.btn_mask = ctk.CTkButton(self.copymove_frame, text="Mask", command=self.run_auto_mask_thread, width=50, fg_color="#444")
             self.btn_mask.pack(side="left", padx=2)
 
-            btn_feather = ctk.CTkButton(self.copymove_frame, text="Feather", command=self.image_canvas.trigger_feathering, width=70, fg_color="#444")
+            btn_feather = ctk.CTkButton(self.copymove_frame, text="Blur", command=self.image_canvas.trigger_feathering, width=50, fg_color="#444")
             btn_feather.pack(side="left", padx=2)
 
-            ctk.CTkFrame(self.copymove_frame, width=1, height=20, fg_color="#444").pack(side="left", padx=10)
+            ctk.CTkFrame(self.copymove_frame, width=1, height=20, fg_color="#444").pack(side="left", padx=5)
 
-            btn_apply = ctk.CTkButton(self.copymove_frame, text="Paste", command=self.apply_tool, width=70, fg_color="green")
-            btn_apply.pack(side="left", padx=5)
+            btn_apply = ctk.CTkButton(self.copymove_frame, text="Paste", command=self.apply_tool, width=50, fg_color="green")
+            btn_apply.pack(side="left", padx=2)
 
-            btn_clear = ctk.CTkButton(self.copymove_frame, text="Cancel", command=self.clear_tool_selection, width=70, fg_color="#8B0000")
-            btn_clear.pack(side="left", padx=5)
+            btn_clear = ctk.CTkButton(self.copymove_frame, text="Cancel", command=self.clear_tool_selection, width=50, fg_color="#8B0000")
+            btn_clear.pack(side="left", padx=2)
 
     def update_floating_scale(self, val):
         self.image_canvas.apply_transformations(scale_percent=val)

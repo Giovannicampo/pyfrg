@@ -355,38 +355,37 @@ class ImageCanvas(ctk.CTkFrame):
         """
         if not pil_image or not self.original_image: return
 
+        # Reset selezione interna
+        self.selection_coords_img = None
+        self.selection_rect_id = None
+        
+        # Imposta subito la modalità per evitare conflitti nel refresh
+        self.tool_mode = "move_floating"
+        self.canvas.config(cursor="fleur")
+
         # Converti e prepara
         self.floating_base_ref = pil_image.convert("RGBA")
         self.floating_pil_image = self.floating_base_ref.copy()
         self.floating_angle = 0
         self.floating_scale_val = 1.0
         
-        # Posiziona al centro della vista attuale
-        # Calcola il centro della canvas visibile
+        # Calcola dimensioni e posizione iniziali (Centrato)
         cw, ch = self.canvas.winfo_width(), self.canvas.winfo_height()
         cx, cy = cw // 2, ch // 2
-        
-        # Posiziona l'angolo in alto a sinistra dell'oggetto in modo che sia centrato
         w, h = pil_image.size
-        # Scaliamo approssimativamente l'oggetto se è enorme rispetto alla vista
-        initial_scale = 1.0
+        
+        # Scala iniziale se l'immagine è troppo grande
         if w > cw or h > ch:
-             initial_scale = min(cw/w, ch/h) * 0.5
-             self.floating_scale_val = initial_scale
-             self.apply_transformations() # Applica subito lo scale
+             self.floating_scale_val = min(cw/w, ch/h) * 0.5
 
-        # Centra coordinate canvas
-        final_w = int(w * self.scale * self.floating_scale_val)
-        final_h = int(h * self.scale * self.floating_scale_val)
-        
-        self.floating_pos = (cx - final_w//2, cy - final_h//2)
-        
-        self.selection_coords_img = None # Non deriva da una selezione interna
-        self.selection_rect_id = None
-        
-        self.tool_mode = "move_floating"
-        self.canvas.config(cursor="fleur")
-        self.refresh_floating_image()
+        # Calcola la posizione centrata BASATA sullo scale appena deciso
+        # Nota: il refresh userà floating_pos
+        dw = int(w * self.scale * self.floating_scale_val)
+        dh = int(h * self.scale * self.floating_scale_val)
+        self.floating_pos = (cx - dw//2, cy - dh//2)
+
+        # Ora applica le trasformazioni (che chiamerà refresh_floating_image usando pos e scale corretti)
+        self.apply_transformations()
 
     def apply_transformations(self, scale_percent=None, angle=None):
         if self.floating_base_ref is None: return
@@ -409,8 +408,11 @@ class ImageCanvas(ctk.CTkFrame):
         if dw > 0 and dh > 0:
             img_display = self.floating_pil_image.resize((dw, dh), Image.Resampling.BILINEAR)
             self.floating_tk_image = ImageTk.PhotoImage(img_display)
-            if self.tool_mode == "select":
+            
+            # Aggiorna posizione solo se siamo in modalità selezione attiva con coordinate valide
+            if self.tool_mode == "select" and self.selection_coords_img:
                 self.floating_pos = self.image_to_canvas(self.selection_coords_img[0], self.selection_coords_img[1])
+            
             self.floating_image_id = self.canvas.create_image(self.floating_pos[0], self.floating_pos[1], anchor="nw", image=self.floating_tk_image)
 
     def apply_paste(self):

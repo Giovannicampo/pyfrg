@@ -131,6 +131,12 @@ class ImageCanvas(ctk.CTkFrame):
                 if mode == "H": img_to_process = h.convert("RGB")
                 elif mode == "S": img_to_process = s.convert("RGB")
                 elif mode == "V": img_to_process = v.convert("RGB")
+            elif mode in ["YCbCr", "Y", "Cb", "Cr"]:
+                y, cb, cr = img_to_process.convert("YCbCr").split()
+                if mode == "YCbCr": img_to_process = Image.merge("RGB", (y, cb, cr))
+                elif mode == "Y": img_to_process = y.convert("RGB")
+                elif mode == "Cb": img_to_process = cb.convert("RGB")
+                elif mode == "Cr": img_to_process = cr.convert("RGB")
             elif mode == "L": img_to_process = img_to_process.convert("L").convert("RGB")
         except: pass
 
@@ -174,8 +180,42 @@ class ImageCanvas(ctk.CTkFrame):
         w, h = self.original_image.size
         if 0 <= ix < w and 0 <= iy < h:
             try:
-                pixel = self.original_image.getpixel((ix, iy))
-                return f"XY: {ix},{iy} | RGB: {pixel[:3]}"
+                mode = self.channel_mode
+                label = mode
+                vals = ""
+                
+                if mode == "RGB":
+                    p = self.original_image.convert("RGB").getpixel((ix, iy))
+                    vals = f"{p[0]},{p[1]},{p[2]}"
+                elif mode in ["R", "G", "B"]:
+                    p = self.original_image.convert("RGB").getpixel((ix, iy))
+                    idx = ["R", "G", "B"].index(mode)
+                    vals = f"{p[idx]}"
+                elif mode == "HSV":
+                    p = self.original_image.convert("HSV").getpixel((ix, iy))
+                    vals = f"{p[0]},{p[1]},{p[2]}"
+                elif mode in ["H", "S", "V"]:
+                    p = self.original_image.convert("HSV").getpixel((ix, iy))
+                    idx = ["H", "S", "V"].index(mode)
+                    vals = f"{p[idx]}"
+                elif mode == "YCbCr":
+                    p = self.original_image.convert("YCbCr").getpixel((ix, iy))
+                    vals = f"{p[0]},{p[1]},{p[2]}"
+                elif mode in ["Y", "Cb", "Cr"] or mode == "L":
+                    # Note: L is often handled as Y in YCbCr or separate Grayscale
+                    if mode == "L": 
+                         p = self.original_image.convert("L").getpixel((ix, iy))
+                         vals = f"{p}"
+                    else:
+                        p = self.original_image.convert("YCbCr").getpixel((ix, iy))
+                        idx = ["Y", "Cb", "Cr"].index(mode)
+                        vals = f"{p[idx]}"
+                else:
+                    # Fallback
+                    p = self.original_image.convert("RGB").getpixel((ix, iy))
+                    vals = f"{p[0]},{p[1]},{p[2]}"
+
+                return f"XY: {ix},{iy} | {label}: {vals}"
             except: return "Error"
         return "Outside"
 

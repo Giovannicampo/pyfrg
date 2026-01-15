@@ -285,7 +285,6 @@ class ImageCanvas(ctk.CTkFrame):
                 
             elif "handle" in tags: # Any resize handle
                 self._interaction_mode = "scale"
-                # Salva distanza iniziale dal centro
                 w, h = self.floating_pil_image.size
                 dw, dh = int(w * self.scale), int(h * self.scale)
                 cx = self.floating_pos[0] + dw / 2
@@ -361,7 +360,6 @@ class ImageCanvas(ctk.CTkFrame):
                 
                 self.floating_angle = self._base_angle + delta
                 
-                # Come per scale, la rotazione cambia il bounding box (expand=True), quindi dobbiamo ricentrare
                 self.apply_transformations(angle=None)
                 
                 w_new, h_new = self.floating_pil_image.size
@@ -460,36 +458,28 @@ class ImageCanvas(ctk.CTkFrame):
         """
         if not pil_image or not self.original_image: return
 
-        # Reset selezione interna
         self.selection_coords_img = None
         self.selection_rect_id = None
         
-        # Imposta subito la modalità per evitare conflitti nel refresh
         self.tool_mode = "move_floating"
         self.canvas.config(cursor="fleur")
 
-        # Converti e prepara
         self.floating_base_ref = pil_image.convert("RGBA")
         self.floating_pil_image = self.floating_base_ref.copy()
         self.floating_angle = 0
         self.floating_scale_val = 1.0
         
-        # Calcola dimensioni e posizione iniziali (Centrato)
         cw, ch = self.canvas.winfo_width(), self.canvas.winfo_height()
         cx, cy = cw // 2, ch // 2
         w, h = pil_image.size
         
-        # Scala iniziale se l'immagine è troppo grande
         if w > cw or h > ch:
              self.floating_scale_val = min(cw/w, ch/h) * 0.5
 
-        # Calcola la posizione centrata BASATA sullo scale appena deciso
-        # Nota: il refresh userà floating_pos
         dw = int(w * self.scale * self.floating_scale_val)
         dh = int(h * self.scale * self.floating_scale_val)
         self.floating_pos = (cx - dw//2, cy - dh//2)
 
-        # Ora applica le trasformazioni (che chiamerà refresh_floating_image usando pos e scale corretti)
         self.apply_transformations()
 
     def apply_transformations(self, scale_percent=None, angle=None):
@@ -544,13 +534,6 @@ class ImageCanvas(ctk.CTkFrame):
             img_display = self.floating_pil_image.resize((dw, dh), Image.Resampling.BILINEAR)
             self.floating_tk_image = ImageTk.PhotoImage(img_display)
             
-            # Se siamo in fase di spostamento/select, la posizione è definita.
-            # Altrimenti, calcoliamo la posizione per centrare l'immagine se necessario, 
-            # ma qui assumiamo che self.floating_pos sia l'angolo Top-Left del bounding box NON RUOTATO.
-            # Tuttavia, con la rotazione, floating_pos diventa ambiguo. 
-            # Convenzione: self.floating_pos è sempre l'angolo Top-Left del rettangolo che contiene l'immagine (visuale).
-            
-            # Aggiorna posizione solo se siamo in modalità selezione attiva con coordinate valide
             if self.tool_mode == "select" and self.selection_coords_img:
                 self.floating_pos = self.image_to_canvas(self.selection_coords_img[0], self.selection_coords_img[1])
 
@@ -561,26 +544,15 @@ class ImageCanvas(ctk.CTkFrame):
             
             # 2. Se siamo in modalità di modifica (move_floating), disegna le maniglie
             if self.tool_mode == "move_floating":
-                # Calcoliamo il centro attuale dell'immagine visualizzata
-                # L'immagine visualizzata da PIL è già ruotata e include il padding trasparente?
-                # Se floating_pil_image è il risultato di rotate(expand=True), allora floating_pos è il top-left del bounding box.
-                # Il centro reale dell'immagine è semplicemente al centro di dw, dh
                 cx = self.floating_pos[0] + dw / 2
                 cy = self.floating_pos[1] + dh / 2
                 
-                # Per disegnare le maniglie correttamente orientate, dobbiamo sapere le dimensioni originali (pre-rotazione) scalate
-                # Ma floating_pil_image è GIA' ruotata. Questo complica le cose.
-                # APPROCCIO SEMPLIFICATO: Disegniamo un box attorno all'immagine corrente (che è il bounding box dell'immagine ruotata)
-                # Questo è lo stile standard quando si usa rotate(expand=True).
-                
-                # Disegna Box Contenitore
                 rect_coords = (
                     self.floating_pos[0], self.floating_pos[1],
                     self.floating_pos[0] + dw, self.floating_pos[1] + dh
                 )
                 self.canvas.create_rectangle(*rect_coords, outline="#00ffff", width=1, tags="overlay_ui")
                 
-                # Maniglie Angolari (Resize)
                 handle_size = 8
                 corners = [
                     (rect_coords[0], rect_coords[1]), # TL
@@ -597,8 +569,6 @@ class ImageCanvas(ctk.CTkFrame):
                         fill="white", outline="#00ffff", tags=("overlay_ui", "handle", tags[i])
                     )
                 
-                # Maniglia Rotazione (Top)
-                # La posizioniamo sopra il lato superiore
                 top_mid_x = (rect_coords[0] + rect_coords[2]) / 2
                 top_mid_y = rect_coords[1]
                 rot_handle_y = top_mid_y - 20

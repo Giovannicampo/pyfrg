@@ -1,5 +1,7 @@
 customtkinter
-opencv-python
 pillow
 numpy
 exifread
+matplotlib
+rembg
+opencv-python

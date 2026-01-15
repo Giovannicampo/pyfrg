@@ -11,14 +11,11 @@ class HistoryManager:
         if image is None:
             return
         
-        # Copia profonda dell'immagine per isolare lo stato
         self.undo_stack.append(image.copy())
         
-        # Mantieni la history entro il limite per risparmiare RAM
         if len(self.undo_stack) > self.max_steps:
             self.undo_stack.pop(0)
             
-        # Una nuova azione "uccide" il futuro (svuota redo)
         self.redo_stack.clear()
 
     def undo(self, current_image):
@@ -26,7 +23,6 @@ class HistoryManager:
         if not self.undo_stack:
             return None
         
-        # Salva lo stato attuale nel Redo prima di tornare indietro
         if current_image:
             self.redo_stack.append(current_image.copy())
             
@@ -37,7 +33,6 @@ class HistoryManager:
         if not self.redo_stack:
             return None
             
-        # Salva lo stato attuale nell'Undo prima di andare avanti
         if current_image:
             self.undo_stack.append(current_image.copy())
             
